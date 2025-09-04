@@ -30,7 +30,19 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
     _handler = logging.StreamHandler()
     _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
-    logger.addHandler(_handler)
+logger.addHandler(_handler)
+
+
+def _sanitize_path(p: str) -> str:
+    """Strip surrounding quotes and whitespace from a filesystem path.
+    Handles paths copied via Windows "Copy as path" which include quotes.
+    """
+    if not p:
+        return p
+    p = p.strip()
+    if (p.startswith('"') and p.endswith('"')) or (p.startswith("'") and p.endswith("'")):
+        return p[1:-1].strip()
+    return p
 
 CORS(app)
 
@@ -916,7 +928,7 @@ def upload_updated_tw2():
             return jsonify({'error': 'Please upload a TW2 or MDB file'}), 400
         
         # Get optional original file path from form data
-        original_path = request.form.get('original_path', '').strip()
+        original_path = _sanitize_path(request.form.get('original_path', '').strip())
         print(f"UPLOAD: Original path provided: {original_path}")
         
         # Save file persistently for refresh functionality
@@ -1285,7 +1297,7 @@ def validate_tw2_path():
     """Validate that a TW2 file path exists and is accessible"""
     try:
         data = request.json
-        file_path = data.get('path', '').strip()
+        file_path = _sanitize_path(data.get('path', '').strip())
         
         if not file_path:
             return jsonify({'valid': False, 'error': 'No path provided'})
@@ -1364,7 +1376,7 @@ def refresh_and_compare():
         updated_tw2_path = session.get('updated_tw2_path')
 
         # Allow request to override/set original path for this refresh
-        request_original_path = data.get('original_path')
+        request_original_path = _sanitize_path(data.get('original_path')) if data.get('original_path') else None
         if request_original_path:
             print(f"REFRESH: Original path provided in request: {request_original_path}")
             if os.path.exists(request_original_path):

@@ -80,6 +80,16 @@
             });
         }
 
+        // Sanitize local Windows path: remove surrounding quotes (Copy as path)
+        function sanitizeLocalPath(path) {
+            if (!path) return path;
+            path = path.trim();
+            if ((path.startsWith('"') && path.endsWith('"')) || (path.startsWith("'") && path.endsWith("'"))) {
+                return path.slice(1, -1).trim();
+            }
+            return path;
+        }
+
         // Handle TW2 file upload
         function handleTW2File(file) {
             if (!file.name.endsWith('.tw2') && !file.name.endsWith('.mdb')) {
@@ -452,7 +462,7 @@
             formData.append('file', file);
             
             // Add original path if provided
-            const originalPath = document.getElementById('original-tw2-path').value.trim();
+            const originalPath = sanitizeLocalPath(document.getElementById('original-tw2-path').value);
             if (originalPath) {
                 formData.append('original_path', originalPath);
                 console.log('TW2 UPLOAD: Including original path:', originalPath);
@@ -794,7 +804,7 @@
                 wpd_threshold: parseFloat(document.getElementById('wpd-threshold').value) || 5,
                 apd_threshold: parseFloat(document.getElementById('apd-threshold').value) || 0.25,
                 // Pass through the original path (if user provided it)
-                original_path: (document.getElementById('original-tw2-path').value || '').trim()
+                original_path: sanitizeLocalPath((document.getElementById('original-tw2-path').value || ''))
             };
             
             console.log('REFRESH: Configuration:', config);
@@ -867,7 +877,7 @@
             const pathInput = document.getElementById('original-tw2-path');
             const validateBtn = document.getElementById('validate-path-btn');
             const feedback = document.getElementById('path-validation-feedback');
-            const path = pathInput.value.trim();
+            const path = sanitizeLocalPath(pathInput.value);
             
             if (!path) {
                 showFeedback(feedback, 'Please enter a file path', 'warning');
