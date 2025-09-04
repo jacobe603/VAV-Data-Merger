@@ -8,6 +8,12 @@ body {
     max-width: 1400px;
 }
 
+/* Equal height cards in the upload row */
+.equalize-cards > [class*="col-"] { display: flex; }
+.equalize-cards > [class*="col-"] > .card { display: flex; flex-direction: column; width: 100%; }
+.equalize-cards .card-body { flex: 1 1 auto; display: flex; flex-direction: column; }
+.equalize-cards .dropzone { flex: 1 1 auto; }
+
 /* Dropzone Styles */
 .dropzone {
     border: 2px dashed #dee2e6;
