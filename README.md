@@ -2,6 +2,10 @@
 
 A web-based tool for combining Excel spreadsheet data with Titus Teams TW2 database files for VAV unit scheduling.
 
+## Changelog
+
+- See `CHANGELOG.md` for notable changes and release notes.
+
 ## Features
 
 - **Drag & Drop Interface**: Easy file uploads for TW2 and Excel files
