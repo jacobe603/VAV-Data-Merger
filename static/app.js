@@ -80,6 +80,22 @@
             });
         }
 
+        // Navigate to the Performance Comparison tab/view
+        function showComparisonView() {
+            try {
+                const tab = document.getElementById('comparison-tab');
+                if (tab) {
+                    tab.click();
+                }
+                const panel = document.getElementById('comparison-data');
+                if (panel) {
+                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            } catch (e) {
+                console.warn('NAV: Unable to switch to comparison view', e);
+            }
+        }
+
         // Sanitize local Windows path: remove surrounding quotes (Copy as path)
         function sanitizeLocalPath(path) {
             if (!path) return path;
