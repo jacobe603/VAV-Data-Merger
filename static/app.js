@@ -84,12 +84,30 @@
         function showComparisonView() {
             try {
                 const tab = document.getElementById('comparison-tab');
-                if (tab) {
-                    tab.click();
-                }
+                if (tab) tab.click();
+
                 const panel = document.getElementById('comparison-data');
-                if (panel) {
-                    panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                if (panel) panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+                // If both required datasets are loaded, run the comparison immediately
+                const hasExcel = !!excelData || (window.sessionStorage && sessionStorage.getItem('excel_loaded') === '1');
+                const hasUpdated = !!updatedTw2Data || (window.sessionStorage && sessionStorage.getItem('updated_tw2_loaded') === '1');
+
+                if (hasExcel && hasUpdated) {
+                    runPerformanceComparison();
+                } else {
+                    // Guide the user to load missing files
+                    if (!hasExcel && !hasUpdated) {
+                        showToast('Please upload Excel and Updated TW2 files first', 'error');
+                    } else if (!hasExcel) {
+                        showToast('Please upload the Excel file first', 'error');
+                        const excelTab = document.getElementById('excel-tab');
+                        if (excelTab) excelTab.click();
+                    } else {
+                        showToast('Please upload the Updated TW2 file first', 'error');
+                        const tw2Tab = document.getElementById('tw2-tab');
+                        if (tw2Tab) tw2Tab.click();
+                    }
                 }
             } catch (e) {
                 console.warn('NAV: Unable to switch to comparison view', e);
@@ -159,6 +177,7 @@
             
             uploadFile('/upload_excel', formData, (data) => {
                 excelData = data;
+                try { if (window.sessionStorage) sessionStorage.setItem('excel_loaded','1'); } catch (e) {}
                 document.getElementById('excel-filename').textContent = file.name;
                 document.getElementById('excel-records').textContent = data.row_count;
                 
@@ -494,6 +513,7 @@
             .then(data => {
                 if (data.success) {
                     updatedTw2Data = data;
+                    try { if (window.sessionStorage) sessionStorage.setItem('updated_tw2_loaded','1'); } catch (e) {}
                     showToast(`Updated TW2 file loaded: ${data.records} records`, 'success');
                     
                     // Update UI
