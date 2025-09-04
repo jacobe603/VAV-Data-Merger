@@ -29,7 +29,7 @@ body {
 }
 
 .dropzone.dragover {
-    border-color: #007bff;
+    border-color: #0d6efd;
     background-color: #e7f1ff;
 }
 
@@ -52,8 +52,10 @@ body {
 
 /* Table Styles */
 .table-responsive {
-    max-height: 500px;
-    overflow-y: auto;
+    max-height: 600px;
+    overflow: auto;
+    border: 1px solid #dee2e6;
+    border-radius: 0.25rem;
 }
 
 .table th {
@@ -61,6 +63,45 @@ body {
     top: 0;
     background-color: #f8f9fa;
     z-index: 10;
+    white-space: nowrap;
+    font-size: 0.85rem;
+    padding: 0.5rem;
+    border-bottom: 2px solid #dee2e6;
+}
+
+.table td {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    padding: 0.4rem 0.5rem;
+    max-width: 200px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.table td:hover {
+    overflow: visible;
+    white-space: normal;
+    background-color: #f8f9fa;
+    position: relative;
+    z-index: 5;
+}
+
+/* Row hover for better readability */
+.table-striped tbody tr:hover {
+    background-color: #f1f3f5;
+}
+
+/* Row number column styling */
+.table .row-number {
+    background-color: #f8f9fa;
+    position: sticky;
+    left: 0;
+    z-index: 5;
+    font-weight: 600;
+    text-align: center;
+    width: 50px;
+    min-width: 50px;
+    max-width: 50px;
 }
 
 /* Mapping Table */
@@ -186,4 +227,66 @@ body {
     color: #495057;
     background-color: #fff;
     border-color: #dee2e6 #dee2e6 #fff;
+}
+
+/* Performance Comparison Styles */
+.comparison-pass {
+    background-color: #d4edda !important;
+    color: #155724;
+}
+
+.comparison-warning {
+    background-color: #fff3cd !important;
+    color: #856404;
+}
+
+.comparison-fail {
+    background-color: #f8d7da !important;
+    color: #721c24;
+}
+
+.comparison-value {
+    font-weight: 600;
+}
+
+.percentage-diff {
+    font-size: 0.8em;
+    font-style: italic;
+}
+
+/* Comparison table specific styles */
+#comparison-table th {
+    background-color: #6c757d !important;
+    color: white;
+    font-weight: 600;
+}
+
+#comparison-table .unit-tag {
+    font-weight: 700;
+    background-color: #f8f9fa;
+}
+
+/* Toolbar spacing */
+#comparison-summary .badge { margin-right: 0.25rem; }
+
+/* Icon spacing in buttons */
+.btn .bi { margin-right: 0.25rem; }
+
+/* Status indicators */
+.status-pass::before {
+    content: "✓ ";
+    color: #28a745;
+    font-weight: bold;
+}
+
+.status-warning::before {
+    content: "⚠ ";
+    color: #ffc107;
+    font-weight: bold;
+}
+
+.status-fail::before {
+    content: "✗ ";
+    color: #dc3545;
+    font-weight: bold;
 }

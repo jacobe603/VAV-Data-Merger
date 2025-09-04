@@ -9,20 +9,32 @@
     <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
-    <div class="container-fluid mt-3">
-        <div class="d-flex justify-content-between align-items-center mb-4">
-            <div></div>
-            <div class="text-center">
-                <h1 class="mb-2">VAV Data Merger</h1>
-                <p class="text-muted">Combine Excel data with TW2 (Access MDB) Database</p>
-            </div>
-            <div>
-                <button class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#instructionsModal">
-                    <i class="bi bi-question-circle"></i> Instructions
-                </button>
+    <!-- Top Navigation -->
+    <nav class="navbar navbar-expand-lg navbar-dark bg-primary shadow-sm">
+        <div class="container-fluid">
+            <a class="navbar-brand fw-semibold" href="#"><i class="bi bi-diagram-2 me-2"></i>VAV Data Merger</a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarContent" aria-controls="navbarContent" aria-expanded="false" aria-label="Toggle navigation">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarContent">
+                <div class="ms-auto d-flex align-items-center gap-2">
+                    <button class="btn btn-outline-light btn-sm" data-bs-toggle="modal" data-bs-target="#instructionsModal">
+                        <i class="bi bi-question-circle me-1"></i>Instructions
+                    </button>
+                </div>
             </div>
         </div>
-        
+    </nav>
+
+    <!-- Page Header -->
+    <header class="bg-light border-bottom py-3 mb-3">
+        <div class="container-fluid">
+            <h1 class="h3 mb-1">VAV Data Merger</h1>
+            <p class="text-muted mb-0">Combine Excel data with TW2 (Access MDB) Database</p>
+        </div>
+    </header>
+
+    <div class="container-fluid">
         <!-- File Upload Section -->
         <div class="row mb-4">
             <!-- TW2 File Upload -->
@@ -274,6 +286,15 @@
 
                                 <!-- Comparison Results -->
                                 <div id="comparison-results" style="display: none;">
+                                    <div class="d-flex justify-content-between align-items-center mb-2 flex-wrap gap-2">
+                                        <div class="d-flex align-items-center gap-2" id="comparison-summary" aria-live="polite">
+                                            <span class="badge bg-success" id="summary-pass" title="Passing units">Pass: 0</span>
+                                            <span class="badge bg-warning text-dark" id="summary-warning" title="Warning units">Warn: 0</span>
+                                            <span class="badge bg-danger" id="summary-fail" title="Failing units">Fail: 0</span>
+                                            <span class="badge bg-secondary" id="summary-notfound" title="Units not found in TW2">Not Found: 0</span>
+                                        </div>
+                                        <div class="text-muted small" id="path-source-indicator"></div>
+                                    </div>
                                     <div class="table-responsive">
                                         <table id="comparison-table" class="table table-striped table-sm">
                                             <!-- Comparison results will be inserted here -->

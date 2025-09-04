@@ -740,6 +740,17 @@
             
             // Show results section
             document.getElementById('comparison-results').style.display = 'block';
+            // Update summary badges if present
+            try {
+                const s = summary || {};
+                const setText = (id, text) => { const el = document.getElementById(id); if (el) el.textContent = text; };
+                if (typeof s.pass !== 'undefined') setText('summary-pass', `Pass: ${s.pass}`);
+                if (typeof s.warning !== 'undefined') setText('summary-warning', `Warn: ${s.warning}`);
+                if (typeof s.fail !== 'undefined') setText('summary-fail', `Fail: ${s.fail}`);
+                if (typeof s.not_found !== 'undefined') setText('summary-notfound', `Not Found: ${s.not_found}`);
+            } catch (e) {
+                console.warn('DISPLAY: unable to update summary badges', e);
+            }
             
             // Show acceptable ranges and summary
             const rangeInfo = document.createElement('div');
@@ -819,6 +830,13 @@
                         } catch (error) {
                             console.error('REFRESH: ❌ Error in displayComparisonResults:', error);
                         }
+                        // Update path source indicator
+                        try {
+                            const el = document.getElementById('path-source-indicator');
+                            if (el && payload.path_source) {
+                                el.textContent = `Source: ${payload.path_source === 'original' ? 'Original TW2 file' : 'Local copy'}`;
+                            }
+                        } catch (e) {}
                         showToast('TW2 data refreshed and comparison completed successfully', 'success');
                     } else {
                         console.log('REFRESH: No comparison available:', payload.message);
