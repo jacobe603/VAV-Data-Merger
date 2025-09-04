@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python:*)",
+      "WebSearch",
+      "Bash(start:*)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV\\templates/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV\\templates/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV\\templates/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV\\templates/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV\\templates/**)",
+      "Read(/C:\\Users\\Jacob\\Claude\\VAV/**)",
+      "Bash(copy \"VAV_Data_Merger_Instructions.md\" \"static\"\")"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

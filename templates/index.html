@@ -1,0 +1,939 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>VAV Data Merger</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.8.1/font/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+    <div class="container-fluid mt-3">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <div></div>
+            <div class="text-center">
+                <h1 class="mb-2">VAV Data Merger</h1>
+                <p class="text-muted">Combine Excel data with TW2 (Access MDB) Database</p>
+            </div>
+            <div>
+                <button class="btn btn-info btn-sm" data-bs-toggle="modal" data-bs-target="#instructionsModal">
+                    <i class="bi bi-question-circle"></i> Instructions
+                </button>
+            </div>
+        </div>
+        
+        <!-- File Upload Section -->
+        <div class="row mb-4">
+            <!-- TW2 File Upload -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-primary text-white">
+                        <h5 class="mb-0">TW2 Database File</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="tw2-dropzone" class="dropzone">
+                            <p class="text-center mb-0">
+                                <i class="bi bi-cloud-upload" style="font-size: 2rem;"></i><br>
+                                Drag & Drop your .tw2 file here<br>
+                                <small>or click to browse</small>
+                            </p>
+                            <input type="file" id="tw2-file-input" accept=".tw2,.mdb" style="display: none;">
+                        </div>
+                        <div id="tw2-file-info" class="mt-3" style="display: none;">
+                            <p class="mb-1"><strong>File:</strong> <span id="tw2-filename"></span></p>
+                            <p class="mb-1"><strong>Records:</strong> <span id="tw2-records"></span></p>
+                            <div id="tw2-columns" class="mb-2"></div>
+                            <button class="btn btn-sm btn-outline-primary" onclick="viewTW2Data()">View Sample Data</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Excel File Upload -->
+            <div class="col-md-6">
+                <div class="card">
+                    <div class="card-header bg-success text-white">
+                        <h5 class="mb-0">Excel File</h5>
+                    </div>
+                    <div class="card-body">
+                        <div id="excel-dropzone" class="dropzone">
+                            <p class="text-center mb-0">
+                                <i class="bi bi-cloud-upload" style="font-size: 2rem;"></i><br>
+                                Drag & Drop your Excel file here<br>
+                                <small>or click to browse</small>
+                            </p>
+                            <input type="file" id="excel-file-input" accept=".xlsx,.xls" style="display: none;">
+                        </div>
+                        <div id="excel-file-info" class="mt-3" style="display: none;">
+                            <p class="mb-1"><strong>File:</strong> <span id="excel-filename"></span></p>
+                            <p class="mb-1"><strong>Records:</strong> <span id="excel-records"></span></p>
+                            <div id="excel-columns" class="mb-2"></div>
+                            <button class="btn btn-sm btn-outline-success" onclick="viewExcelData()">View Sample Data</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Mapping Section -->
+        <div id="mapping-section" class="row mb-4" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header bg-warning">
+                        <h5 class="mb-0">Field Mapping Configuration</h5>
+                    </div>
+                    <div class="card-body">
+                        <p>Map Excel columns to TW2 database fields:</p>
+                        <div class="row">
+                            <div class="col-md-8">
+                                <table class="table table-sm">
+                                    <thead>
+                                        <tr>
+                                            <th>TW2 Field (Target)</th>
+                                            <th>Excel Column (Source)</th>
+                                            <th>Status</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="mapping-table">
+                                        <!-- Mapping rows will be inserted here -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div class="col-md-4">
+                                <div class="alert alert-info">
+                                    <h6>Required Fields:</h6>
+                                    <ul class="small mb-0">
+                                        <li><strong>Tag</strong> - Unit identifier (required for matching)</li>
+                                        <li>UnitSize</li>
+                                        <li>InletSize</li>
+                                        <li>CFMDesign</li>
+                                        <li>CFMMinPrime</li>
+                                        <li>HeatingPrime</li>
+                                        <li>HWCFM</li>
+                                        <li>HWGPM</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="mt-3">
+                            <button class="btn btn-warning" id="apply-mapping-btn" onclick="applyMapping()" disabled>
+                                Apply Mapping & Update Database
+                            </button>
+                            <button class="btn btn-secondary" onclick="resetMapping()">Reset</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Data Preview Section -->
+        <div id="data-preview-section" class="row" style="display: none;">
+            <div class="col-12">
+                <div class="card">
+                    <div class="card-header">
+                        <ul class="nav nav-tabs card-header-tabs">
+                            <li class="nav-item">
+                                <a class="nav-link active" id="tw2-tab" data-bs-toggle="tab" href="#tw2-data">TW2 Data</a>
+                            </li>
+                            <li class="nav-item">
+                                <a class="nav-link" id="excel-tab" data-bs-toggle="tab" href="#excel-data">Excel Data</a>
+                            </li>
+                        </ul>
+                    </div>
+                    <div class="card-body">
+                        <div class="tab-content">
+                            <div class="tab-pane fade show active" id="tw2-data">
+                                <div class="table-responsive">
+                                    <table id="tw2-table" class="table table-striped table-sm">
+                                        <!-- TW2 data will be inserted here -->
+                                    </table>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="excel-data">
+                                <div class="table-responsive">
+                                    <table id="excel-table" class="table table-striped table-sm">
+                                        <!-- Excel data will be inserted here -->
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- Results Section -->
+        <div id="results-section" style="display: none;">
+            <div class="alert alert-success" id="results-content">
+                <!-- Results will be displayed here -->
+            </div>
+        </div>
+        
+        <!-- Status Messages -->
+        <div id="status-messages" class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+            <!-- Toast messages will appear here -->
+        </div>
+    </div>
+    
+    <!-- Scripts -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <!-- Instructions Modal -->
+    <div class="modal fade" id="instructionsModal" tabindex="-1" aria-labelledby="instructionsModalLabel" aria-hidden="true">
+        <div class="modal-dialog modal-xl">
+            <div class="modal-content">
+                <div class="modal-header bg-info text-white">
+                    <h5 class="modal-title" id="instructionsModalLabel">
+                        <i class="bi bi-question-circle"></i> VAV Data Merger - Complete Workflow Instructions
+                    </h5>
+                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
+                </div>
+                <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+                    
+                    <!-- Quick Start Section -->
+                    <div class="alert alert-success mb-4">
+                        <h6 class="alert-heading"><i class="bi bi-lightning-fill"></i> Quick Start</h6>
+                        <ol class="mb-0">
+                            <li><strong>Start:</strong> Create job in Titus Teams → Set up master VAV → Copy to create all units</li>
+                            <li><strong>Export:</strong> Save TW2 file from Teams</li>
+                            <li><strong>Upload:</strong> Drag TW2 and Excel files to this tool</li>
+                            <li><strong>Apply:</strong> Review mapping → Click "Apply Mapping"</li>
+                            <li><strong>Import:</strong> Replace TW2 in Teams → Verify data</li>
+                        </ol>
+                    </div>
+
+                    <!-- Tabbed Content -->
+                    <ul class="nav nav-tabs mb-3" id="instructionTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="teams-tab" data-bs-toggle="tab" data-bs-target="#teams" type="button" role="tab">Titus Teams</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="excel-setup-tab" data-bs-toggle="tab" data-bs-target="#excel-setup" type="button" role="tab">Excel Setup</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="tool-usage-tab" data-bs-toggle="tab" data-bs-target="#tool-usage" type="button" role="tab">Tool Usage</button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="troubleshooting-tab" data-bs-toggle="tab" data-bs-target="#troubleshooting" type="button" role="tab">Troubleshooting</button>
+                        </li>
+                    </ul>
+
+                    <div class="tab-content" id="instructionTabContent">
+                        
+                        <!-- Titus Teams Tab -->
+                        <div class="tab-pane fade show active" id="teams" role="tabpanel">
+                            <h6><i class="bi bi-gear-fill text-primary"></i> Part 1: Titus Teams Preparation</h6>
+                            
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 1: Create New Job</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ul>
+                                        <li>Open Titus Teams software</li>
+                                        <li>Create new job/project (e.g., "936290 - UND Flight Operations")</li>
+                                        <li>Set up project parameters and building/zone information</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 2: Create Master VAV Unit</strong>
+                                </div>
+                                <div class="card-body">
+                                    <p>Create first VAV unit with complete specifications:</p>
+                                    <ul>
+                                        <li><strong>Tag:</strong> V-1-01 <small class="text-muted">(zero-padded format)</small></li>
+                                        <li><strong>Unit Size:</strong> VAV box size (6", 8", 10", 14")</li>
+                                        <li><strong>Inlet Size:</strong> Air inlet diameter</li>
+                                        <li><strong>CFM Design:</strong> Maximum design airflow</li>
+                                        <li><strong>CFM Min Prime:</strong> Minimum primary airflow</li>
+                                        <li><strong>Heating Prime:</strong> Primary airflow during heating</li>
+                                        <li><strong>HWCFM:</strong> Hot water coil airflow</li>
+                                        <li><strong>HWGPM:</strong> Hot water flow rate</li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 3: Copy Units</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ul>
+                                        <li>Select completed VAV unit</li>
+                                        <li>Use Teams' copy/duplicate function</li>
+                                        <li>Create required quantity (e.g., 42 units)</li>
+                                        <li>Tags: V-1-01, V-1-02, V-1-03, etc. <small class="text-muted">(sequential format)</small></li>
+                                    </ul>
+                                </div>
+                            </div>
+
+                            <div class="card">
+                                <div class="card-header bg-light">
+                                    <strong>Step 4: Export TW2 Database</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ul>
+                                        <li>Save Titus Teams project</li>
+                                        <li>Locate .tw2 file in project folder</li>
+                                        <li>Copy to known location for this tool</li>
+                                        <li><span class="badge bg-warning text-dark">Important:</span> Keep .tw2 extension</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Excel Setup Tab -->
+                        <div class="tab-pane fade" id="excel-setup" role="tabpanel">
+                            <h6><i class="bi bi-file-earmark-excel text-success"></i> Part 2: Excel Data Preparation</h6>
+                            
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Required Excel Columns</strong>
+                                </div>
+                                <div class="card-body">
+                                    <div class="table-responsive">
+                                        <table class="table table-sm">
+                                            <thead class="table-dark">
+                                                <tr>
+                                                    <th>Column Name</th>
+                                                    <th>Description</th>
+                                                    <th>Example Values</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody>
+                                                <tr>
+                                                    <td><code>Unit_No</code></td>
+                                                    <td>Unit identifier</td>
+                                                    <td>V-1-1, V-1-2, V-1-3</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>Unit_Size</code></td>
+                                                    <td>VAV box size</td>
+                                                    <td>6, 8, 10, 14, 24x16</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>Inlet_Size</code></td>
+                                                    <td>Inlet size in inches</td>
+                                                    <td>6", 8", 10", 14"</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>CFM_Max</code></td>
+                                                    <td>Maximum design airflow</td>
+                                                    <td>500, 750, 1200</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>CFM_Min</code></td>
+                                                    <td>Minimum airflow</td>
+                                                    <td>100, 150, 250</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>CFM_Heat</code></td>
+                                                    <td>Heating mode airflow</td>
+                                                    <td>300, 450, 600</td>
+                                                </tr>
+                                                <tr>
+                                                    <td><code>GPM</code></td>
+                                                    <td>Hot water flow rate</td>
+                                                    <td>2.5, 3.0, 4.5</td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Format Requirements</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ul>
+                                        <li>Data starts in <strong>row 3</strong> (rows 1-2 can be headers)</li>
+                                        <li>Remove blank rows</li>
+                                        <li>Save as .xlsx format</li>
+                                        <li>Tag formats: V-1-1 → automatically converts to V-1-01</li>
+                                    </ul>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Tool Usage Tab -->
+                        <div class="tab-pane fade" id="tool-usage" role="tabpanel">
+                            <h6><i class="bi bi-tools text-warning"></i> Part 3: Using VAV Data Merger</h6>
+                            
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 1: Upload Files</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ol>
+                                        <li>Drag TW2 file to left dropzone</li>
+                                        <li>Drag Excel file to right dropzone</li>
+                                        <li>Wait for green success messages</li>
+                                        <li>Review data preview tables</li>
+                                    </ol>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 2: Field Mapping</strong>
+                                </div>
+                                <div class="card-body">
+                                    <p>Automatic mapping between TW2 and Excel fields:</p>
+                                    <ul>
+                                        <li><strong>Tag</strong> ← Unit_No <small class="text-muted">(identifier matching)</small></li>
+                                        <li><strong>UnitSize</strong> ← Unit_Size</li>
+                                        <li><strong>InletSize</strong> ← Inlet_Size</li>
+                                        <li><strong>CFMDesign</strong> ← CFM_Max</li>
+                                        <li><strong>CFMMinPrime</strong> ← CFM_Min</li>
+                                        <li><strong>HWCFM</strong> ← CFM_Heat</li>
+                                        <li><strong>HWGPM</strong> ← GPM</li>
+                                    </ul>
+                                    <p class="mb-0"><i class="bi bi-lightbulb"></i> <small>Hover over TW2 field names for detailed descriptions</small></p>
+                                </div>
+                            </div>
+
+                            <div class="card mb-3">
+                                <div class="card-header bg-light">
+                                    <strong>Step 3: Apply Mapping</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ol>
+                                        <li>Review mapping table</li>
+                                        <li>Click "Apply Mapping & Update Database"</li>
+                                        <li>Monitor progress (processed in batches)</li>
+                                        <li>Wait for success confirmation</li>
+                                    </ol>
+                                    <div class="alert alert-info mt-2">
+                                        <small><i class="bi bi-info-circle"></i> Backup file automatically created with timestamp</small>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Troubleshooting Tab -->
+                        <div class="tab-pane fade" id="troubleshooting" role="tabpanel">
+                            <h6><i class="bi bi-exclamation-triangle text-danger"></i> Troubleshooting Guide</h6>
+                            
+                            <div class="accordion" id="troubleshootingAccordion">
+                                
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="headingOne">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseOne">
+                                            "No records updated" Error
+                                        </button>
+                                    </h2>
+                                    <div id="collapseOne" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                        <div class="accordion-body">
+                                            <strong>Causes:</strong>
+                                            <ul>
+                                                <li>Tag format mismatch between Excel and TW2</li>
+                                                <li>Excel data in wrong rows</li>
+                                            </ul>
+                                            <strong>Solutions:</strong>
+                                            <ul>
+                                                <li>Ensure Excel Unit_No matches TW2 Tag format</li>
+                                                <li>Data should start in row 3 of Excel</li>
+                                                <li>Check for blank rows in Excel data</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="headingTwo">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTwo">
+                                            "Upload error: SyntaxError" 
+                                        </button>
+                                    </h2>
+                                    <div id="collapseTwo" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                        <div class="accordion-body">
+                                            <strong>Cause:</strong> NaN/empty values in Excel data
+                                            <br>
+                                            <strong>Solution:</strong> Clean Excel file - ensure numeric columns contain valid numbers, remove empty cells
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="headingThree">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseThree">
+                                            "Too few parameters" SQL Error
+                                        </button>
+                                    </h2>
+                                    <div id="collapseThree" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                        <div class="accordion-body">
+                                            <strong>Status:</strong> Known issue with some field batches - partial updates still successful
+                                            <br>
+                                            <strong>Impact:</strong> Core fields (Tag, UnitSize, InletSize, CFMDesign, HWGPM) update successfully
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="accordion-item">
+                                    <h2 class="accordion-header" id="headingFour">
+                                        <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseFour">
+                                            Missing Dependencies
+                                        </button>
+                                    </h2>
+                                    <div id="collapseFour" class="accordion-collapse collapse" data-bs-parent="#troubleshootingAccordion">
+                                        <div class="accordion-body">
+                                            Run in command prompt:
+                                            <pre class="bg-dark text-light p-2 mt-2"><code>pip install flask flask-cors pandas pyodbc</code></pre>
+                                        </div>
+                                    </div>
+                                </div>
+
+                            </div>
+
+                            <div class="card mt-4">
+                                <div class="card-header bg-light">
+                                    <strong>Post-Processing: Import Back to Titus Teams</strong>
+                                </div>
+                                <div class="card-body">
+                                    <ol>
+                                        <li>Close Titus Teams completely</li>
+                                        <li>Replace original TW2 file with updated version</li>
+                                        <li>Reopen Teams and verify data populated correctly</li>
+                                        <li>Run Teams validation checks</li>
+                                        <li>Archive backup files for future reference</li>
+                                    </ol>
+                                </div>
+                            </div>
+
+                        </div>
+
+                    </div>
+
+                </div>
+                <div class="modal-footer">
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                    <a href="/static/VAV_Data_Merger_Instructions.md" target="_blank" class="btn btn-primary">
+                        <i class="bi bi-download"></i> Download Full Guide
+                    </a>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script>
+        // Global variables
+        let tw2Data = null;
+        let excelData = null;
+        let mappingFields = null;
+        let currentMappings = {};
+
+        // TW2 field descriptions for tooltips
+        const fieldDescriptions = {
+            'Tag': 'Unit identifier - Must match Excel Unit_No (e.g., V-1-1 → V-1-01)',
+            'UnitSize': 'VAV unit size designation (e.g., 6, 8, 10, 14, 24x16)',
+            'InletSize': 'Air inlet size in inches (e.g., 6", 8", 10", 14")',
+            'CFMDesign': 'Design air flow rate in CFM - Maximum airflow capacity',
+            'CFMMinPrime': 'Minimum primary airflow in CFM when heating/cooling',
+            'HeatingPrime': 'Primary airflow during heating mode in CFM',
+            'HWCFM': 'Hot water coil airflow in CFM - Airflow through heating coil',
+            'HWGPM': 'Hot water flow rate in GPM (gallons per minute)'
+        };
+
+        // Initialize on page load
+        $(document).ready(function() {
+            setupDropzones();
+            setupFileInputs();
+        });
+
+        // Setup drag and drop zones
+        function setupDropzones() {
+            // TW2 Dropzone
+            setupDropzone('tw2-dropzone', 'tw2-file-input', handleTW2File);
+            // Excel Dropzone
+            setupDropzone('excel-dropzone', 'excel-file-input', handleExcelFile);
+        }
+
+        function setupDropzone(dropzoneId, inputId, handler) {
+            const dropzone = document.getElementById(dropzoneId);
+            const fileInput = document.getElementById(inputId);
+            
+            dropzone.addEventListener('click', () => fileInput.click());
+            
+            dropzone.addEventListener('dragover', (e) => {
+                e.preventDefault();
+                dropzone.classList.add('dragover');
+            });
+            
+            dropzone.addEventListener('dragleave', () => {
+                dropzone.classList.remove('dragover');
+            });
+            
+            dropzone.addEventListener('drop', (e) => {
+                e.preventDefault();
+                dropzone.classList.remove('dragover');
+                
+                const files = e.dataTransfer.files;
+                if (files.length > 0) {
+                    handler(files[0]);
+                }
+            });
+        }
+
+        // Setup file input handlers
+        function setupFileInputs() {
+            document.getElementById('tw2-file-input').addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleTW2File(e.target.files[0]);
+                }
+            });
+            
+            document.getElementById('excel-file-input').addEventListener('change', (e) => {
+                if (e.target.files.length > 0) {
+                    handleExcelFile(e.target.files[0]);
+                }
+            });
+        }
+
+        // Handle TW2 file upload
+        function handleTW2File(file) {
+            if (!file.name.endsWith('.tw2') && !file.name.endsWith('.mdb')) {
+                showToast('Please select a valid .tw2 or .mdb file', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            showToast('Uploading TW2 file...', 'info');
+            
+            uploadFile('/upload_tw2', formData, (data) => {
+                tw2Data = data;
+                document.getElementById('tw2-filename').textContent = file.name;
+                document.getElementById('tw2-records').textContent = data.row_count;
+                
+                // Show some column names
+                const columnsDiv = document.getElementById('tw2-columns');
+                const keyColumns = ['Tag', 'UnitSize', 'InletSize', 'CFMDesign', 'HWCFM', 'HWGPM'];
+                const availableKeyColumns = keyColumns.filter(col => data.columns.includes(col));
+                columnsDiv.innerHTML = `<small><strong>Key columns:</strong> ${availableKeyColumns.join(', ')}</small>`;
+                
+                document.getElementById('tw2-file-info').style.display = 'block';
+                document.getElementById('tw2-dropzone').classList.add('has-file');
+                showToast('TW2 file loaded successfully', 'success');
+                checkBothFilesLoaded();
+            });
+        }
+
+        // Handle Excel file upload
+        function handleExcelFile(file) {
+            if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
+                showToast('Please select a valid Excel file', 'error');
+                return;
+            }
+            
+            const formData = new FormData();
+            formData.append('file', file);
+            
+            showToast('Uploading Excel file...', 'info');
+            
+            uploadFile('/upload_excel', formData, (data) => {
+                excelData = data;
+                document.getElementById('excel-filename').textContent = file.name;
+                document.getElementById('excel-records').textContent = data.row_count;
+                
+                // Show column names
+                const columnsDiv = document.getElementById('excel-columns');
+                columnsDiv.innerHTML = `<small><strong>Columns:</strong> ${data.columns.slice(0, 6).join(', ')}...</small>`;
+                
+                document.getElementById('excel-file-info').style.display = 'block';
+                document.getElementById('excel-dropzone').classList.add('has-file');
+                showToast('Excel file loaded successfully', 'success');
+                checkBothFilesLoaded();
+            });
+        }
+
+        // Generic file upload function
+        function uploadFile(endpoint, formData, successCallback) {
+            fetch(endpoint, {
+                method: 'POST',
+                body: formData
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    successCallback(data);
+                } else {
+                    showToast('Error: ' + (data.error || 'Upload failed'), 'error');
+                }
+            })
+            .catch(error => {
+                console.error('Upload error:', error);
+                showToast('Network error during upload', 'error');
+            });
+        }
+
+        // Check if both files are loaded
+        function checkBothFilesLoaded() {
+            if (tw2Data && excelData) {
+                loadMappingFields();
+                document.getElementById('mapping-section').style.display = 'block';
+            }
+        }
+
+        // Load mapping fields
+        function loadMappingFields() {
+            fetch('/get_mapping_fields')
+            .then(response => response.json())
+            .then(data => {
+                mappingFields = data;
+                buildMappingTable();
+            })
+            .catch(error => {
+                showToast('Error loading mapping fields: ' + error, 'error');
+            });
+        }
+
+        // Build the mapping table
+        function buildMappingTable() {
+            const tbody = document.getElementById('mapping-table');
+            tbody.innerHTML = '';
+            
+            mappingFields.target_fields.forEach(field => {
+                const row = document.createElement('tr');
+                
+                // Target field column with tooltip
+                const targetCell = document.createElement('td');
+                const description = fieldDescriptions[field] || 'No description available';
+                targetCell.innerHTML = `<strong data-bs-toggle="tooltip" data-bs-placement="right" title="${description}" style="cursor: help; border-bottom: 1px dotted #999;">${field}</strong>`;
+                row.appendChild(targetCell);
+                
+                // Source field dropdown
+                const sourceCell = document.createElement('td');
+                const select = document.createElement('select');
+                select.className = 'form-select form-select-sm';
+                select.id = `mapping-${field}`;
+                
+                // Add empty option
+                const emptyOption = document.createElement('option');
+                emptyOption.value = '';
+                emptyOption.textContent = '-- Select Excel Column --';
+                select.appendChild(emptyOption);
+                
+                // Add Excel columns as options
+                mappingFields.excel_fields.forEach(excelField => {
+                    const option = document.createElement('option');
+                    option.value = excelField;
+                    option.textContent = excelField;
+                    
+                    // Auto-select suggested mapping
+                    if (mappingFields.suggested_mappings[field] === excelField) {
+                        option.selected = true;
+                        currentMappings[field] = excelField;
+                    }
+                    
+                    select.appendChild(option);
+                });
+                
+                select.addEventListener('change', (e) => {
+                    if (e.target.value) {
+                        currentMappings[field] = e.target.value;
+                    } else {
+                        delete currentMappings[field];
+                    }
+                    updateApplyButton();
+                });
+                
+                sourceCell.appendChild(select);
+                row.appendChild(sourceCell);
+                
+                // Status column
+                const statusCell = document.createElement('td');
+                if (field === 'Tag') {
+                    statusCell.innerHTML = '<span class="badge bg-danger">Required</span>';
+                } else {
+                    statusCell.innerHTML = '<span class="badge bg-secondary">Optional</span>';
+                }
+                row.appendChild(statusCell);
+                
+                tbody.appendChild(row);
+            });
+            
+            // Initialize Bootstrap tooltips
+            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
+            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
+                return new bootstrap.Tooltip(tooltipTriggerEl);
+            });
+            
+            updateApplyButton();
+        }
+
+        function updateApplyButton() {
+            const applyBtn = document.getElementById('apply-mapping-btn');
+            // Enable button if Tag is mapped
+            if (currentMappings.Tag) {
+                applyBtn.disabled = false;
+            } else {
+                applyBtn.disabled = true;
+            }
+        }
+
+        // View TW2 Data
+        function viewTW2Data() {
+            if (!tw2Data) return;
+            
+            document.getElementById('data-preview-section').style.display = 'block';
+            document.getElementById('tw2-tab').click();
+            
+            const table = document.getElementById('tw2-table');
+            
+            // Key columns to display
+            const displayColumns = ['Tag', 'UnitSize', 'InletSize', 'CFMDesign', 'CFMMinPrime', 'HWCFM', 'HWGPM'];
+            const availableColumns = displayColumns.filter(col => tw2Data.columns.includes(col));
+            
+            // Create header
+            let headerHtml = '<thead><tr>';
+            availableColumns.forEach(col => {
+                headerHtml += `<th>${col}</th>`;
+            });
+            headerHtml += '</tr></thead>';
+            
+            // Create body
+            let bodyHtml = '<tbody>';
+            tw2Data.data.slice(0, 10).forEach(row => {
+                bodyHtml += '<tr>';
+                availableColumns.forEach(col => {
+                    let value = row[col];
+                    if (value === null || value === undefined) value = '';
+                    bodyHtml += `<td>${value}</td>`;
+                });
+                bodyHtml += '</tr>';
+            });
+            bodyHtml += '</tbody>';
+            
+            table.innerHTML = headerHtml + bodyHtml;
+        }
+
+        // View Excel Data
+        function viewExcelData() {
+            if (!excelData) return;
+            
+            document.getElementById('data-preview-section').style.display = 'block';
+            document.getElementById('excel-tab').click();
+            
+            const table = document.getElementById('excel-table');
+            
+            // Create header
+            let headerHtml = '<thead><tr>';
+            excelData.columns.slice(0, 8).forEach(col => {
+                headerHtml += `<th>${col}</th>`;
+            });
+            headerHtml += '</tr></thead>';
+            
+            // Create body
+            let bodyHtml = '<tbody>';
+            excelData.data.slice(0, 10).forEach(row => {
+                bodyHtml += '<tr>';
+                excelData.columns.slice(0, 8).forEach(col => {
+                    let value = row[col];
+                    if (value === null || value === undefined) value = '';
+                    bodyHtml += `<td>${value}</td>`;
+                });
+                bodyHtml += '</tr>';
+            });
+            bodyHtml += '</tbody>';
+            
+            table.innerHTML = headerHtml + bodyHtml;
+        }
+
+        // Apply mapping
+        function applyMapping() {
+            if (!currentMappings.Tag) {
+                showToast('Please map the Tag field first (required for matching records)', 'error');
+                return;
+            }
+            
+            if (!confirm('Are you sure you want to apply these mappings? This will update your TW2 database. A backup will be created automatically.')) {
+                return;
+            }
+            
+            showToast('Applying mappings and updating database...', 'info');
+            
+            fetch('/apply_mapping', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({ mappings: currentMappings })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    let message = `Successfully updated ${data.updated_records} records.`;
+                    if (data.backup_file) {
+                        message += ` Backup saved as: ${data.backup_file.split('\\').pop()}`;
+                    }
+                    
+                    document.getElementById('results-content').innerHTML = `
+                        <h5>Update Complete!</h5>
+                        <p>${message}</p>
+                        ${data.errors ? `<p><strong>Warnings:</strong> ${data.errors.length} issues occurred. Check console for details.</p>` : ''}
+                    `;
+                    document.getElementById('results-section').style.display = 'block';
+                    
+                    showToast('Database updated successfully!', 'success');
+                    
+                    if (data.errors && data.errors.length > 0) {
+                        console.error('Update errors:', data.errors);
+                    }
+                } else {
+                    showToast('Error applying mappings: ' + data.error, 'error');
+                }
+            })
+            .catch(error => {
+                showToast('Error: ' + error, 'error');
+            });
+        }
+
+        // Reset mapping
+        function resetMapping() {
+            currentMappings = {};
+            if (mappingFields) {
+                buildMappingTable();
+            }
+            document.getElementById('results-section').style.display = 'none';
+            showToast('Mappings reset', 'info');
+        }
+
+        // Show toast message
+        function showToast(message, type = 'info') {
+            const container = document.getElementById('status-messages');
+            
+            const toastId = 'toast_' + Date.now();
+            const toast = document.createElement('div');
+            toast.id = toastId;
+            toast.className = `toast ${type} show`;
+            toast.setAttribute('role', 'alert');
+            toast.innerHTML = `
+                <div class="toast-header">
+                    <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
+                    <button type="button" class="btn-close" onclick="document.getElementById('${toastId}').remove()"></button>
+                </div>
+                <div class="toast-body">
+                    ${message}
+                </div>
+            `;
+            
+            container.appendChild(toast);
+            
+            // Auto remove after 5 seconds for success/info, keep errors longer
+            const timeout = type === 'error' ? 10000 : 5000;
+            setTimeout(() => {
+                if (document.getElementById(toastId)) {
+                    document.getElementById(toastId).remove();
+                }
+            }, timeout);
+        }
+    </script>
+</body>
+</html>
