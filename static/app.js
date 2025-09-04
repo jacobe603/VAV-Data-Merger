@@ -83,6 +83,10 @@
         // Navigate to the Performance Comparison tab/view
         function showComparisonView() {
             try {
+                // Ensure the preview section is visible
+                const preview = document.getElementById('data-preview-section');
+                if (preview) preview.style.display = 'block';
+
                 const tab = document.getElementById('comparison-tab');
                 if (tab) tab.click();
 
@@ -741,6 +745,13 @@
             console.log('DISPLAY: Summary:', summary);
             const tableContainer = document.getElementById('comparison-table');
             console.log('DISPLAY: Table container found:', tableContainer);
+            // Make sure the container sections are visible and the correct tab is active
+            try {
+                const preview = document.getElementById('data-preview-section');
+                if (preview) preview.style.display = 'block';
+                const tab = document.getElementById('comparison-tab');
+                if (tab) tab.click();
+            } catch (e) {}
             
             let headerHtml = `
                 <thead>
