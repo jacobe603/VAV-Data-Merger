@@ -1,5 +1,7 @@
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, session
+import logging
 from flask_cors import CORS
+from flask_session import Session
 import pyodbc
 import pandas as pd
 import os
@@ -8,8 +10,28 @@ import decimal
 from datetime import datetime
 from werkzeug.utils import secure_filename
 import shutil
+import tempfile
+import time
 
 app = Flask(__name__)
+app.secret_key = 'vav-data-merger-secret-key-2025'  # Required for Flask sessions
+
+# Configure Flask-Session for file-based session storage
+app.config['SESSION_TYPE'] = 'filesystem'
+app.config['SESSION_FILE_DIR'] = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'sessions')
+app.config['SESSION_PERMANENT'] = False
+app.config['SESSION_USE_SIGNER'] = True
+app.config['SESSION_KEY_PREFIX'] = 'vav-merger:'
+Session(app)
+
+# Basic logging configuration for app
+logger = logging.getLogger('vav_data_merger')
+if not logger.handlers:
+    logger.setLevel(logging.INFO)
+    _handler = logging.StreamHandler()
+    _handler.setFormatter(logging.Formatter('%(asctime)s %(levelname)s %(message)s'))
+    logger.addHandler(_handler)
+
 CORS(app)
 
 # Configure upload settings
@@ -21,8 +43,7 @@ app.config['MAX_CONTENT_LENGTH'] = 16 * 1024 * 1024
 # Ensure upload directory exists
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-# Store uploaded data temporarily
-session_data = {}
+# Session data is now handled by Flask sessions (removed global dict)
 
 def allowed_file(filename):
     return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
@@ -174,32 +195,268 @@ def read_tw2_data_safe(file_path):
             'error': str(e).encode('ascii', 'ignore').decode('ascii')
         }
 
-def read_excel_data_safe(file_path):
-    """Read Excel data with proper error handling"""
+def clean_size_value(value):
+    """Remove inch marks (") from size values and add zero-padding for numeric sizes"""
+    if value is None or pd.isna(value):
+        return value
+    
+    # Convert to string and remove all double quotes
+    cleaned = str(value).replace('"', '')
+    
+    # Check if this is a simple numeric size that needs zero-padding
+    # Handle both integer and string representations
     try:
+        # Try to convert to integer to see if it's a simple number
+        num_value = int(float(cleaned))
+        # If it's a single digit (1-9), zero-pad to 2 digits
+        if 1 <= num_value <= 9:
+            return f"{num_value:02d}"
+        # For larger numbers, return as string but ensure 2 digits minimum
+        elif num_value >= 10:
+            return str(num_value)
+        else:
+            return cleaned
+    except (ValueError, TypeError):
+        # Not a simple number - could be dimensions like "24x16" or "20x18"
+        # Just return cleaned (without quotes)
+        return cleaned
+
+def normalize_header_text(text):
+    """Clean and normalize header text"""
+    if text is None or pd.isna(text):
+        return ""
+    # Convert to string and clean up
+    cleaned = str(text).strip()
+    # Remove line breaks and normalize whitespace - this is key for "UNIT\nNO."
+    cleaned = ' '.join(cleaned.split())
+    # Remove special characters that cause issues
+    cleaned = cleaned.replace('&', 'and').replace('"', '').replace("'", "")
+    return cleaned
+
+def combine_multi_row_headers(df, header_rows=2, title_row_offset=0):
+    """Combine multi-row headers into single header row
+    
+    Args:
+        df: DataFrame with raw Excel data
+        header_rows: Number of header rows to combine (default 2)
+        title_row_offset: Number of title rows to skip before headers (default 0)
+    """
+    headers = []
+    
+    # Get the header rows, skipping title rows
+    start_row = title_row_offset
+    end_row = title_row_offset + header_rows
+    header_data = df.iloc[start_row:end_row]
+    
+    for col_idx in range(len(df.columns)):
+        # Get values from the header rows for this column
+        row1_val = normalize_header_text(header_data.iloc[0, col_idx]) if not pd.isna(header_data.iloc[0, col_idx]) else ""
+        row2_val = normalize_header_text(header_data.iloc[1, col_idx]) if header_rows > 1 and len(header_data) > 1 and not pd.isna(header_data.iloc[1, col_idx]) else ""
+        
+        # Combine headers intelligently
+        if row1_val and row2_val:
+            # Both rows have content - combine them
+            combined = f"{row1_val}_{row2_val}"
+        elif row1_val:
+            # Only first row has content
+            combined = row1_val
+        elif row2_val:
+            # Only second row has content  
+            combined = row2_val
+        else:
+            # No content in either row
+            combined = f"Column_{col_idx + 1}"
+            
+        headers.append(combined)
+    
+    return headers
+
+def map_excel_headers_to_standard(excel_headers):
+    """Map Excel headers to our standard field names"""
+    # Define mapping from combined Excel headers to standard names
+    header_mapping = {
+        # Unit identification
+        'UNIT NO.': 'Unit_No',
+        'UNIT_NO.': 'Unit_No', 
+        'UNIT NO': 'Unit_No',
+        'UNIT_NO': 'Unit_No',
+        
+        # Manufacturer
+        'MANUFACTURER and MODEL NO.': 'Manufacturer_Model',
+        'MANUFACTURER & MODEL NO.': 'Manufacturer_Model',
+        'MANUFACTURER MODEL NO.': 'Manufacturer_Model',
+        'MANUFACTURER and MODEL': 'Manufacturer_Model',
+        
+        # Unit size
+        'UNIT SIZE': 'Unit_Size',
+        'UNIT_SIZE': 'Unit_Size',
+        
+        # Dimensions
+        'W x L x H': 'Dimensions',
+        'Wx Lx H': 'Dimensions',
+        'DIMENSIONS': 'Dimensions',
+        
+        # Inlet size
+        'INLET SIZE': 'Inlet_Size',
+        'INLET_SIZE': 'Inlet_Size',
+        
+        # Outlet size
+        'OUTLET SIZE': 'Outlet_Size',
+        'OUTLET_SIZE': 'Outlet_Size',
+        
+        # CFM values - handle the multi-row structure
+        'CFM_MAX': 'CFM_Max',
+        'CFM MAX': 'CFM_Max',
+        'CFM_MIN': 'CFM_Min', 
+        'CFM MIN': 'CFM_Min',
+        'CFM_HEAT': 'CFM_Heat',
+        'CFM HEAT': 'CFM_Heat',
+        # Handle single CFM column that gets combined with sub-headers
+        'CFM': 'CFM_Max',  # Default CFM to Max if no sub-header
+        
+        # Temperature values
+        'EAT': 'EAT',
+        'LAT': 'LAT',
+        
+        # Other values
+        'TOTAL MBH': 'Total_MBH',
+        'TOTAL_MBH': 'Total_MBH',
+        'EWT': 'EWT',
+        'FLUID': 'Fluid',
+        'GPM': 'GPM',
+        'MAX WPD': 'Max_WPD',
+        'MAX_WPD': 'Max_WPD',
+        'NOTES': 'Notes'
+    }
+    
+    # Map headers with smart CFM handling
+    mapped_headers = []
+    
+    for i, header in enumerate(excel_headers):
+        header_upper = header.upper().strip()
+        
+        # Direct mapping first
+        if header_upper in header_mapping:
+            mapped_headers.append(header_mapping[header_upper])
+        # Handle special cases for CFM sub-columns
+        elif header_upper == 'MAX':
+            # Check if this is likely a CFM sub-column by looking at previous headers
+            if i > 0 and ('CFM' in excel_headers[i-1].upper() or any('CFM' in str(excel_headers[j]).upper() for j in range(max(0, i-3), i))):
+                mapped_headers.append('CFM_Max')
+            else:
+                mapped_headers.append('MAX')
+        elif header_upper == 'MIN':
+            # Check if this is likely a CFM sub-column
+            if i > 0 and ('CFM' in excel_headers[i-1].upper() or any('CFM' in str(excel_headers[j]).upper() for j in range(max(0, i-3), i))):
+                mapped_headers.append('CFM_Min')
+            else:
+                mapped_headers.append('MIN')
+        elif header_upper == 'HEAT':
+            # Check if this is likely a CFM sub-column
+            if i > 0 and ('CFM' in excel_headers[i-1].upper() or any('CFM' in str(excel_headers[j]).upper() for j in range(max(0, i-3), i))):
+                mapped_headers.append('CFM_Heat')
+            else:
+                mapped_headers.append('HEAT')
+        # Handle empty or generic CFM columns
+        elif header_upper == 'CFM' or (header_upper == '' and i > 0 and 'CFM' in excel_headers[i-1].upper()):
+            # This is likely the start of CFM multi-column, assign based on position
+            mapped_headers.append('CFM_Max')  # First CFM column is usually MAX
+        # Default handling - keep original or create generic name
+        else:
+            # Try partial matching for common patterns
+            if 'MANUFACTURER' in header_upper:
+                mapped_headers.append('Manufacturer_Model')
+            elif 'UNIT' in header_upper and ('SIZE' in header_upper or 'NO' in header_upper):
+                if 'SIZE' in header_upper:
+                    mapped_headers.append('Unit_Size')
+                else:
+                    mapped_headers.append('Unit_No')
+            elif 'INLET' in header_upper:
+                mapped_headers.append('Inlet_Size')
+            elif 'OUTLET' in header_upper:
+                mapped_headers.append('Outlet_Size')
+            elif 'DIMENSION' in header_upper or 'x' in header_upper.lower():
+                mapped_headers.append('Dimensions')
+            else:
+                # Keep original header but clean it up
+                clean_header = header.replace(' ', '_').replace('&', 'and')
+                mapped_headers.append(clean_header)
+    
+    print(f"Header mapping result: {list(zip(excel_headers, mapped_headers))}")
+    return mapped_headers
+
+def read_excel_data_safe(file_path, data_start_row=3, header_rows=2, skip_title_row=True):
+    """Read Excel data with proper error handling and configurable header detection
+    
+    Args:
+        file_path: Path to Excel file
+        data_start_row: Row number where data starts (1-based)
+        header_rows: Number of header rows to combine
+        skip_title_row: Whether to skip the first row as title
+    """
+    try:
+        print("=" * 50)
+        print("EXCEL FILE PROCESSING STARTED")
+        print("=" * 50)
         print(f"Attempting to read Excel data from: {file_path}")
         
-        # Read the Excel file
-        df = pd.read_excel(file_path, sheet_name=0)
+        # Read the Excel file without any header assumptions
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+        print(f"Raw Excel shape: {df_raw.shape}")
         
-        # Skip the first two rows as they seem to be headers
-        df_cleaned = df.iloc[2:].reset_index(drop=True)
+        # Show first 5 rows for debugging
+        print("=== FIRST 5 ROWS OF RAW EXCEL ===")
+        for i in range(min(5, len(df_raw))):
+            row_values = df_raw.iloc[i].tolist()
+            print(f"Row {i}: {row_values}")
+        print("=== END RAW EXCEL PREVIEW ===")
         
-        # Rename columns based on expected structure
-        column_names = [
-            'Unit_No', 'Manufacturer_Model', 'Unit_Size', 'Dimensions',
-            'Inlet_Size', 'Outlet_Size', 'CFM_Max', 'CFM_Min', 'CFM_Heat',
-            'EAT', 'LAT', 'Total_MBH', 'EWT', 'Fluid', 'GPM', 'Max_WPD', 'Notes'
-        ]
+        # Use configurable header detection
+        title_row_offset = 1 if skip_title_row else 0
         
-        # Ensure we don't exceed the number of columns
-        if len(column_names) > len(df_cleaned.columns):
-            column_names = column_names[:len(df_cleaned.columns)]
+        print(f"Configuration - Data start row: {data_start_row}, Header rows: {header_rows}, Skip title: {skip_title_row}")
+        print(f"Title row offset: {title_row_offset}")
         
-        df_cleaned.columns = column_names[:len(df_cleaned.columns)]
+        # Combine multi-row headers based on configuration
+        excel_headers = combine_multi_row_headers(df_raw, header_rows=header_rows, title_row_offset=title_row_offset)
+        print(f"Combined headers detected: {excel_headers}")
         
-        # Remove rows where Unit_No is NaN
-        df_cleaned = df_cleaned[df_cleaned['Unit_No'].notna()]
+        # Map Excel headers to our standard names
+        mapped_headers = map_excel_headers_to_standard(excel_headers)
+        print(f"Mapped to standard headers: {mapped_headers}")
+        
+        # Extract data starting from the configured row (convert to 0-based index)
+        data_start_index = data_start_row - 1
+        print(f"Extracting data starting from row {data_start_row} (index {data_start_index})")
+        df_data = df_raw.iloc[data_start_index:].reset_index(drop=True)
+        df_data.columns = mapped_headers[:len(df_data.columns)]
+        
+        # Remove completely empty rows
+        df_cleaned = df_data.dropna(how='all').reset_index(drop=True)
+        
+        # Headers should already be properly mapped, so Unit_No column should exist
+        # Don't try to detect or recreate Unit_No column - trust the header mapping
+        print(f"DataFrame columns after mapping: {list(df_cleaned.columns)}")
+        if 'Unit_No' in df_cleaned.columns:
+            print(f"Unit_No column found with sample values: {df_cleaned['Unit_No'].head().tolist()}")
+        else:
+            print("WARNING: Unit_No column not found in mapped headers")
+        
+        # Remove rows where critical data is missing (check multiple columns)
+        # Keep rows that have data in at least Unit_Size or CFM_Max or Manufacturer_Model
+        critical_cols = ['Unit_Size', 'CFM_Max', 'Manufacturer_Model']
+        available_critical = [col for col in critical_cols if col in df_cleaned.columns]
+        
+        if available_critical:
+            # Keep rows that have data in at least one critical column
+            mask = df_cleaned[available_critical].notna().any(axis=1)
+            df_cleaned = df_cleaned[mask].reset_index(drop=True)
+        
+        # Clean size fields - remove inch marks
+        size_columns = ['Unit_Size', 'Inlet_Size', 'Outlet_Size']
+        for col in size_columns:
+            if col in df_cleaned.columns:
+                df_cleaned[col] = df_cleaned[col].apply(clean_size_value)
         
         # Convert to safe format
         data = []
@@ -217,7 +474,13 @@ def read_excel_data_safe(file_path):
             'success': True,
             'data': data,
             'columns': list(df_cleaned.columns),
-            'row_count': len(data)
+            'row_count': len(data),
+            'header_info': {
+                'original_headers': excel_headers,
+                'combined_headers': excel_headers,  # Same as original for now
+                'mapped_headers': mapped_headers,
+                'data_start_row': data_start_row
+            }
         }
         
     except Exception as e:
@@ -225,6 +488,171 @@ def read_excel_data_safe(file_path):
         return {
             'success': False,
             'error': str(e).encode('ascii', 'ignore').decode('ascii')
+        }
+
+def normalize_unit_tag(tag):
+    """Normalize unit tags by adding zero-padding: V-1-1 -> V-1-01, V-1-12 -> V-1-12"""
+    if not tag:
+        return tag
+    
+    tag_str = str(tag).strip()
+    
+    # Look for pattern like V-1-1, V-2-3, etc.
+    import re
+    pattern = r'^([A-Z]+-\d+-)(\d+)$'
+    match = re.match(pattern, tag_str)
+    
+    if match:
+        prefix = match.group(1)  # V-1-
+        number = match.group(2)  # 1
+        
+        # Pad single digits with zero
+        if len(number) == 1:
+            return f"{prefix}{number.zfill(2)}"
+    
+    return tag_str
+
+def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=15, mbh_lat_upper_margin=25, wpd_threshold=5, apd_threshold=0.25):
+    """Compare performance values between Excel and updated TW2 data"""
+    try:
+        comparison_results = []
+        
+        # Convert updated TW2 data to DataFrame for easier processing
+        updated_tw2_df = pd.DataFrame(updated_tw2_data)
+        excel_df = pd.DataFrame(excel_data)
+        
+        # Create index mapping for faster lookups with normalized tags
+        tw2_index = {}
+        for row in updated_tw2_data:
+            original_tag = str(row.get('Tag', '')).strip()
+            normalized_tag = normalize_unit_tag(original_tag)
+            tw2_index[normalized_tag] = row
+            # Also keep original tag as backup
+            tw2_index[original_tag] = row
+        
+        for excel_row in excel_data:
+            unit_tag = str(excel_row.get('Unit_No', '')).strip()
+            if not unit_tag:
+                continue
+                
+            # Normalize the Excel unit tag for matching
+            normalized_excel_tag = normalize_unit_tag(unit_tag)
+            
+            # Find matching TW2 record - try normalized first, then original
+            tw2_row = tw2_index.get(normalized_excel_tag) or tw2_index.get(unit_tag)
+            if not tw2_row:
+                comparison_results.append({
+                    'unit_tag': f"{unit_tag} → {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
+                    'status': 'Not Found',
+                    'excel_mbh': excel_row.get('MBH', 'N/A'),
+                    'tw2_mbh': 'N/A',
+                    'mbh_diff': 'N/A',
+                    'excel_lat': excel_row.get('LAT', 'N/A'),
+                    'tw2_lat': 'N/A',
+                    'lat_diff': 'N/A',
+                    'tw2_wpd': 'N/A',
+                    'tw2_apd': 'N/A'
+                })
+                continue
+            
+            # Extract values
+            excel_mbh = excel_row.get('MBH') or excel_row.get('MBH_Total') or excel_row.get('Total_MBH')
+            excel_lat = excel_row.get('LAT') or excel_row.get('Leaving_Air_Temp')
+            
+            tw2_mbh = tw2_row.get('HWMBHCalc')
+            tw2_lat = tw2_row.get('HWLATCalc')
+            tw2_wpd = tw2_row.get('HWPDCalc')
+            tw2_apd = tw2_row.get('HWAPDCalc')
+            
+            # Calculate differences and status
+            mbh_diff = 'N/A'
+            lat_diff = 'N/A'
+            status_flags = []
+            
+            # MBH comparison with separate upper/lower margins
+            if excel_mbh is not None and tw2_mbh is not None:
+                try:
+                    excel_mbh_val = float(excel_mbh)
+                    tw2_mbh_val = float(tw2_mbh)
+                    if excel_mbh_val != 0:
+                        mbh_diff = ((tw2_mbh_val - excel_mbh_val) / excel_mbh_val) * 100
+                        # Check if outside acceptable range: -15% to +25%
+                        if mbh_diff < -mbh_lat_lower_margin:  # Too low (under by more than 15%)
+                            status_flags.append(f'MBH {mbh_diff:.1f}% (too low)')
+                        elif mbh_diff > mbh_lat_upper_margin:  # Too high (over by more than 25%)
+                            status_flags.append(f'MBH {mbh_diff:.1f}% (too high)')
+                except (ValueError, TypeError):
+                    pass
+            
+            # LAT comparison with separate upper/lower margins
+            if excel_lat is not None and tw2_lat is not None:
+                try:
+                    excel_lat_val = float(excel_lat)
+                    tw2_lat_val = float(tw2_lat)
+                    if excel_lat_val != 0:
+                        lat_diff = ((tw2_lat_val - excel_lat_val) / excel_lat_val) * 100
+                        # Check if outside acceptable range: -15% to +25%
+                        if lat_diff < -mbh_lat_lower_margin:  # Too low (under by more than 15%)
+                            status_flags.append(f'LAT {lat_diff:.1f}% (too low)')
+                        elif lat_diff > mbh_lat_upper_margin:  # Too high (over by more than 25%)
+                            status_flags.append(f'LAT {lat_diff:.1f}% (too high)')
+                except (ValueError, TypeError):
+                    pass
+            
+            # WPD check
+            if tw2_wpd is not None:
+                try:
+                    wpd_val = float(tw2_wpd)
+                    if wpd_val > wpd_threshold:
+                        status_flags.append(f'WPD {wpd_val:.2f}')
+                except (ValueError, TypeError):
+                    pass
+            
+            # APD check
+            if tw2_apd is not None:
+                try:
+                    apd_val = float(tw2_apd)
+                    if apd_val > apd_threshold:
+                        status_flags.append(f'APD {apd_val:.2f}')
+                except (ValueError, TypeError):
+                    pass
+            
+            # Determine overall status
+            if status_flags:
+                status = 'Fail' if any('MBH' in flag or 'LAT' in flag for flag in status_flags) else 'Warning'
+            else:
+                status = 'Pass'
+            
+            comparison_results.append({
+                'unit_tag': f"{unit_tag} → {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
+                'status': status,
+                'status_details': ', '.join(status_flags) if status_flags else 'All within range',
+                'excel_mbh': excel_mbh,
+                'tw2_mbh': tw2_mbh,
+                'mbh_diff': f'{mbh_diff:.1f}%' if isinstance(mbh_diff, (int, float)) else mbh_diff,
+                'excel_lat': excel_lat,
+                'tw2_lat': tw2_lat,
+                'lat_diff': f'{lat_diff:.1f}%' if isinstance(lat_diff, (int, float)) else lat_diff,
+                'tw2_wpd': tw2_wpd,
+                'tw2_apd': tw2_apd
+            })
+        
+        return {
+            'success': True,
+            'results': comparison_results,
+            'summary': {
+                'total': len(comparison_results),
+                'pass': len([r for r in comparison_results if r['status'] == 'Pass']),
+                'warning': len([r for r in comparison_results if r['status'] == 'Warning']),
+                'fail': len([r for r in comparison_results if r['status'] == 'Fail']),
+                'not_found': len([r for r in comparison_results if r['status'] == 'Not Found'])
+            }
+        }
+    
+    except Exception as e:
+        return {
+            'success': False,
+            'error': f'Error during performance comparison: {str(e)}'
         }
 
 @app.route('/')
@@ -255,10 +683,10 @@ def upload_tw2():
             
             if result['success']:
                 # Store in session data
-                session_data['tw2_file'] = abs_filepath
-                session_data['tw2_data'] = result['data']
-                session_data['tw2_columns'] = result['columns']
-                session_data['original_filename'] = file.filename
+                session['tw2_file'] = abs_filepath
+                session['tw2_data'] = result['data']
+                session['tw2_columns'] = result['columns']
+                session['original_filename'] = file.filename
             
             # Use custom JSON encoding
             return Response(
@@ -278,7 +706,12 @@ def upload_tw2():
 def upload_excel():
     """Upload and analyze Excel file"""
     try:
+        print("=" * 50)
+        print("UPLOAD_EXCEL ROUTE CALLED")
+        print("=" * 50)
+        
         if 'file' not in request.files:
+            print("ERROR: No file in request")
             return jsonify({'success': False, 'error': 'No file provided'}), 400
         
         file = request.files['file']
@@ -290,14 +723,20 @@ def upload_excel():
             filepath = os.path.join(app.config['UPLOAD_FOLDER'], filename)
             file.save(filepath)
             
-            # Read the Excel data
-            result = read_excel_data_safe(filepath)
+            # Get configuration parameters from form data
+            data_start_row = int(request.form.get('data_start_row', 3))
+            header_rows = int(request.form.get('header_rows', 2))
+            skip_title_row = request.form.get('skip_title_row', 'true').lower() == 'true'
+            
+            # Read the Excel data with configuration
+            result = read_excel_data_safe(filepath, data_start_row=data_start_row, 
+                                        header_rows=header_rows, skip_title_row=skip_title_row)
             
             if result['success']:
                 # Store in session data
-                session_data['excel_file'] = filepath
-                session_data['excel_data'] = result['data']
-                session_data['excel_columns'] = result['columns']
+                session['excel_file'] = filepath
+                session['excel_data'] = result['data']
+                session['excel_columns'] = result['columns']
             
             return Response(
                 json.dumps(result, cls=CustomJSONEncoder, ensure_ascii=True),
@@ -312,6 +751,111 @@ def upload_excel():
             status=500
         )
 
+@app.route('/debug_excel', methods=['GET'])
+def debug_excel():
+    """Debug endpoint to show raw Excel data"""
+    if 'excel_file' not in session:
+        return jsonify({'error': 'No Excel file uploaded'}), 400
+    
+    try:
+        file_path = session['excel_file']
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+        
+        # Get first 5 rows as lists
+        debug_info = {
+            'file_path': file_path,
+            'shape': list(df_raw.shape),
+            'first_5_rows': []
+        }
+        
+        for i in range(min(5, len(df_raw))):
+            row_data = df_raw.iloc[i].fillna('').tolist()
+            debug_info['first_5_rows'].append({
+                'row_index': i,
+                'data': row_data
+            })
+        
+        return jsonify(debug_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug_headers', methods=['GET'])
+def debug_headers():
+    """Debug endpoint to show header processing"""
+    if 'excel_file' not in session:
+        return jsonify({'error': 'No Excel file uploaded'}), 400
+    
+    try:
+        file_path = session['excel_file'] 
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+        
+        # Show header processing step by step
+        title_row_offset = 1  # Skip title row
+        header_rows = 2
+        
+        # Get raw header rows
+        start_row = title_row_offset 
+        end_row = title_row_offset + header_rows
+        header_data = df_raw.iloc[start_row:end_row]
+        
+        debug_info = {
+            'title_row_offset': title_row_offset,
+            'header_rows': header_rows,
+            'raw_header_row_1': header_data.iloc[0].fillna('').tolist(),
+            'raw_header_row_2': header_data.iloc[1].fillna('').tolist(),
+        }
+        
+        # Process headers
+        excel_headers = combine_multi_row_headers(df_raw, header_rows=header_rows, title_row_offset=title_row_offset)
+        mapped_headers = map_excel_headers_to_standard(excel_headers)
+        
+        debug_info['combined_headers'] = excel_headers
+        debug_info['mapped_headers'] = mapped_headers
+        debug_info['header_mapping'] = list(zip(excel_headers, mapped_headers))
+        
+        return jsonify(debug_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/debug_data', methods=['GET'])
+def debug_data():
+    """Debug endpoint to show data extraction"""
+    if 'excel_file' not in session:
+        return jsonify({'error': 'No Excel file uploaded'}), 400
+    
+    try:
+        file_path = session['excel_file'] 
+        df_raw = pd.read_excel(file_path, sheet_name=0, header=None)
+        
+        # Simulate the data extraction with default settings
+        data_start_row = 4  # This should be row 4 (index 3)
+        data_start_index = data_start_row - 1  # Convert to 0-based = 3
+        
+        debug_info = {
+            'data_start_row': data_start_row,
+            'data_start_index': data_start_index,
+            'total_rows': len(df_raw),
+            'extracted_data_shape': None,
+            'first_3_extracted_rows': []
+        }
+        
+        # Extract data
+        df_data = df_raw.iloc[data_start_index:].reset_index(drop=True)
+        debug_info['extracted_data_shape'] = list(df_data.shape)
+        
+        # Show first 3 rows of extracted data
+        for i in range(min(3, len(df_data))):
+            row_data = df_data.iloc[i].fillna('').tolist()
+            debug_info['first_3_extracted_rows'].append({
+                'extracted_row_index': i,
+                'original_row_index': data_start_index + i,
+                'data': row_data
+            })
+        
+        return jsonify(debug_info)
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
 @app.route('/get_mapping_fields', methods=['GET'])
 def get_mapping_fields():
     """Get the fields available for mapping from both files"""
@@ -319,27 +863,28 @@ def get_mapping_fields():
     # Target fields in tblSchedule that need to be mapped
     target_fields = [
         'Tag', 'UnitSize', 'InletSize', 'CFMDesign', 'CFMMinPrime',
-        'HeatingPrime', 'HWCFM', 'HWGPM'
+        'HWCFM', 'HWGPM', 'HeatingPrimaryAirflow', 'CFMMin'
     ]
     
     # Get tw2 columns if available
     tw2_fields = []
-    if 'tw2_columns' in session_data:
-        tw2_fields = session_data['tw2_columns']
+    if 'tw2_columns' in session:
+        tw2_fields = session['tw2_columns']
     
     # Get Excel columns if available
     excel_fields = []
-    if 'excel_columns' in session_data:
-        excel_fields = session_data['excel_columns']
+    if 'excel_columns' in session:
+        excel_fields = session['excel_columns']
     
     # Suggested mappings
     suggested_mappings = {
         'Tag': 'Unit_No',
         'UnitSize': 'Unit_Size',
-        'InletSize': 'Inlet_Size',
+        'InletSize': 'Unit_Size',  # Both UnitSize and InletSize map to Unit_Size with special logic
         'CFMDesign': 'CFM_Max',
         'CFMMinPrime': 'CFM_Min',
-        'HeatingPrime': 'CFM_Heat',
+        'CFMMin': 'CFM_Min',  # Alternative field name for CFM Min
+        'HeatingPrimaryAirflow': 'CFM_Heat',  # Alternative field name for heating airflow
         'HWCFM': 'CFM_Heat',
         'HWGPM': 'GPM'
     }
@@ -356,6 +901,72 @@ def get_mapping_fields():
         mimetype='application/json'
     )
 
+@app.route('/upload_updated_tw2', methods=['POST'])
+def upload_updated_tw2():
+    """Handle updated TW2 file upload for performance comparison"""
+    try:
+        if 'file' not in request.files:
+            return jsonify({'error': 'No file provided'}), 400
+        
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'error': 'No file selected'}), 400
+            
+        if not file.filename.lower().endswith(('.tw2', '.mdb')):
+            return jsonify({'error': 'Please upload a TW2 or MDB file'}), 400
+        
+        # Get optional original file path from form data
+        original_path = request.form.get('original_path', '').strip()
+        print(f"UPLOAD: Original path provided: {original_path}")
+        
+        # Save file persistently for refresh functionality
+        filename = secure_filename(file.filename)
+        
+        # Create a persistent uploads directory
+        upload_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'uploads')
+        os.makedirs(upload_dir, exist_ok=True)
+        
+        # Save with timestamp to avoid conflicts
+        timestamp = str(int(time.time()))
+        persistent_filename = f"{timestamp}_{filename}"
+        persistent_path = os.path.join(upload_dir, persistent_filename)
+        file.save(persistent_path)
+        
+        # Read the updated TW2 data
+        result = read_tw2_data_safe(persistent_path)
+        
+        if result['success']:
+            # Store updated TW2 data and file path in session
+            session['updated_tw2_data'] = result['data']
+            session['updated_tw2_columns'] = result['columns']
+            session['updated_tw2_filename'] = filename
+            session['updated_tw2_records'] = result['row_count']
+            session['updated_tw2_path'] = persistent_path  # Local copy for refresh
+            
+            # Store original path if provided for remote refresh capability
+            if original_path:
+                session['original_tw2_path'] = original_path
+                print(f"UPLOAD: Stored original path in session: {original_path}")
+            else:
+                # Clear original path if not provided
+                session.pop('original_tw2_path', None)
+                print("UPLOAD: No original path provided, cleared from session")
+            
+            return jsonify({
+                'success': True,
+                'filename': filename,
+                'records': result['row_count'],
+                'columns': result['columns'][:10],  # First 10 columns for display
+                'column_count': len(result['columns']),
+                'message': f'Successfully read {result["row_count"]} records with {len(result["columns"])} columns'
+            })
+        else:
+            return jsonify({'error': f'Failed to read TW2 file: {result["error"]}'}), 400
+            
+    except Exception as e:
+        print(f"Error in upload_updated_tw2: {str(e)}")
+        return jsonify({'error': f'Error processing updated TW2 file: {str(e)}'}), 500
+
 @app.route('/apply_mapping', methods=['POST'])
 def apply_mapping():
     """Apply the mapping and update the tw2 database"""
@@ -363,7 +974,7 @@ def apply_mapping():
         data = request.json
         mappings = data.get('mappings', {})
         
-        if not session_data.get('tw2_file') or not session_data.get('excel_data'):
+        if not session.get('tw2_file') or not session.get('excel_data'):
             return Response(
                 json.dumps({'success': False, 'error': 'Files not loaded'}, ensure_ascii=True),
                 mimetype='application/json',
@@ -371,18 +982,18 @@ def apply_mapping():
             )
         
         # Create a backup
-        backup_path = session_data['tw2_file'] + '.backup_' + datetime.now().strftime('%Y%m%d_%H%M%S')
-        shutil.copy2(session_data['tw2_file'], backup_path)
+        backup_path = session['tw2_file'] + '.backup_' + datetime.now().strftime('%Y%m%d_%H%M%S')
+        shutil.copy2(session['tw2_file'], backup_path)
         
         # Connect to the database
-        conn = get_mdb_connection(session_data['tw2_file'])
+        conn = get_mdb_connection(session['tw2_file'])
         cursor = conn.cursor()
         
         updated_records = 0
         errors = []
         
         # Process each Excel row
-        for excel_row in session_data['excel_data']:
+        for excel_row in session['excel_data']:
             try:
                 # Get the Tag value from Excel to match with tw2
                 tag_field = mappings.get('Tag')
@@ -403,8 +1014,8 @@ def apply_mapping():
                 # Group fields into smaller batches to isolate the problematic field
                 field_batches = [
                     ['UnitSize', 'InletSize', 'CFMDesign'],      # Batch 1: Size and design fields
-                    ['CFMMinPrime'],                             # Batch 2a: Test CFMMinPrime alone
-                    ['HWCFM'],                                   # Batch 2b: Test HWCFM alone  
+                    ['CFMMinPrime', 'CFMMin'],                   # Batch 2a: CFM Min fields
+                    ['HWCFM', 'HeatingPrimaryAirflow'],                 # Batch 2b: Heating airflow fields
                     ['HWGPM']                                    # Batch 3: GPM field
                 ]
                 
@@ -421,13 +1032,50 @@ def apply_mapping():
                             excel_field = mappings[tw2_field]
                             if excel_field in excel_row:
                                 value = excel_row[excel_field]
-                                update_fields.append(f"[{tw2_field}] = ?")
-                                # Convert empty strings to None for database
-                                if value is None or (isinstance(value, str) and str(value).strip() == ''):
-                                    params.append(None)
+                                
+                                # Special handling for Unit_Size mapping
+                                if excel_field == 'Unit_Size' and tw2_field in ['UnitSize', 'InletSize']:
+                                    # Clean and format the value first
+                                    cleaned_value = clean_size_value(value)
+                                    
+                                    if tw2_field == 'UnitSize':
+                                        # UnitSize always gets the cleaned Unit_Size value
+                                        final_value = cleaned_value
+                                    elif tw2_field == 'InletSize':
+                                        # InletSize: special case when Unit_Size = 40, then InletSize = "24x16"
+                                        # Otherwise, InletSize gets the same value as UnitSize
+                                        try:
+                                            unit_size_num = int(float(str(cleaned_value)))
+                                            if unit_size_num == 40:
+                                                final_value = "24x16"
+                                            else:
+                                                final_value = cleaned_value
+                                        except (ValueError, TypeError):
+                                            # If not a number, use cleaned value as-is
+                                            final_value = cleaned_value
+                                    
+                                    update_fields.append(f"[{tw2_field}] = ?")
+                                    if final_value is None or (isinstance(final_value, str) and str(final_value).strip() == ''):
+                                        params.append(None)
+                                    else:
+                                        params.append(final_value)
+                                    print(f"Debug - Batch {batch_num}: Unit_Size special mapping {tw2_field} = {final_value} (from {value})")
+                                    
                                 else:
-                                    params.append(value)
-                                print(f"Debug - Batch {batch_num}: Adding field {tw2_field} = {value}")
+                                    # Standard field mapping - apply size cleaning if it's a size field
+                                    if tw2_field in ['UnitSize', 'InletSize'] or 'Size' in tw2_field:
+                                        cleaned_value = clean_size_value(value)
+                                        final_value = cleaned_value
+                                    else:
+                                        final_value = value
+                                    
+                                    update_fields.append(f"[{tw2_field}] = ?")
+                                    # Convert empty strings to None for database
+                                    if final_value is None or (isinstance(final_value, str) and str(final_value).strip() == ''):
+                                        params.append(None)
+                                    else:
+                                        params.append(final_value)
+                                    print(f"Debug - Batch {batch_num}: Adding field {tw2_field} = {final_value}")
                     
                     # Execute batch if we have fields to update
                     if update_fields:
@@ -488,6 +1136,401 @@ def apply_mapping():
             mimetype='application/json',
             status=500
         )
+
+@app.route('/get_updated_tw2_data', methods=['GET'])
+def get_updated_tw2_data():
+    """Get updated TW2 data for display"""
+    try:
+        if not session.get('updated_tw2_data'):
+            return jsonify({'error': 'No updated TW2 data loaded'}), 400
+        
+        # Return the same structure as the original TW2 data viewer
+        return Response(
+            json.dumps({
+                'success': True,
+                'data': session['updated_tw2_data'],
+                'columns': session.get('updated_tw2_columns', []),
+                'filename': session.get('updated_tw2_filename', 'Unknown'),
+                'records': session.get('updated_tw2_records', 0)
+            }, cls=CustomJSONEncoder, ensure_ascii=True),
+            mimetype='application/json'
+        )
+        
+    except Exception as e:
+        print(f"Error in get_updated_tw2_data: {str(e)}")
+        return jsonify({'error': f'Error retrieving updated TW2 data: {str(e)}'}), 500
+
+@app.route('/compare_performance', methods=['POST'])
+def compare_performance():
+    """Execute performance comparison between Excel and updated TW2 data"""
+    try:
+        data = request.json or {}
+        mbh_lat_lower_margin = float(data.get('mbh_lat_lower_margin', 15))
+        mbh_lat_upper_margin = float(data.get('mbh_lat_upper_margin', 25))
+        wpd_threshold = float(data.get('wpd_threshold', 5))
+        apd_threshold = float(data.get('apd_threshold', 0.25))
+
+        # Check if required data is available
+        if not session.get('excel_data'):
+            return jsonify({'success': False, 'error': 'Excel data not loaded'}), 400
+
+        if not session.get('updated_tw2_data'):
+            return jsonify({'success': False, 'error': 'Updated TW2 data not loaded'}), 400
+
+        # Perform comparison
+        result = compare_performance_data(
+            session['excel_data'],
+            session['updated_tw2_data'],
+            mbh_lat_lower_margin=mbh_lat_lower_margin,
+            mbh_lat_upper_margin=mbh_lat_upper_margin,
+            wpd_threshold=wpd_threshold,
+            apd_threshold=apd_threshold
+        )
+
+        if result['success']:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'results': result['results'],
+                    'summary': result['summary']
+                }
+            })
+        else:
+            return jsonify({'success': False, 'error': result['error']}), 500
+
+    except Exception as e:
+        logger.exception(f"Error in compare_performance: {str(e)}")
+        return jsonify({'success': False, 'error': f'Error during comparison: {str(e)}'}), 500
+
+@app.route('/debug_session', methods=['GET'])
+def debug_session():
+    """Debug endpoint to inspect current session data"""
+    try:
+        # Force session creation if it doesn't exist
+        if not session:
+            session['debug'] = 'session_created'
+        
+        session_keys = list(session.keys())
+        debug_info = {
+            'session_id': request.cookies.get('session', 'No session cookie'),
+            'session_keys': session_keys,
+            'session_data': {},
+            'flask_session_working': True,
+            'storage_type': 'filesystem'
+        }
+        
+        # Show session data with file info
+        for key in session_keys:
+            if key.endswith('_path'):
+                # For file paths, check if they exist
+                file_path = session[key]
+                debug_info['session_data'][key] = {
+                    'path': file_path,
+                    'exists': os.path.exists(file_path) if file_path else False,
+                    'absolute_path': os.path.abspath(file_path) if file_path else None
+                }
+            elif key.endswith('_data'):
+                # For data, just show count
+                data = session[key]
+                debug_info['session_data'][key] = f"[{len(data)} records]" if isinstance(data, list) else str(type(data))
+            else:
+                # For other data, show as is
+                debug_info['session_data'][key] = session[key]
+        
+        return jsonify(debug_info)
+        
+    except Exception as e:
+        return jsonify({'error': f'Debug error: {str(e)}'}), 500
+
+@app.route('/clear_session', methods=['POST'])
+def clear_session():
+    """Debug endpoint to clear session data"""
+    try:
+        session.clear()
+        return jsonify({'success': True, 'message': 'Session cleared'})
+    except Exception as e:
+        return jsonify({'error': f'Clear session error: {str(e)}'}), 500
+
+@app.route('/test_large_session', methods=['POST'])
+def test_large_session():
+    """Test storing large data in session (Flask-Session validation)"""
+    try:
+        # Create a large dataset similar to TW2 data
+        large_data = []
+        for i in range(100):  # 100 records
+            record = {}
+            for j in range(50):  # 50 columns per record
+                record[f'column_{j}'] = f'value_{i}_{j}_' + 'x' * 20  # Long values
+            large_data.append(record)
+        
+        # Store in session
+        session['test_large_data'] = large_data
+        session['test_metadata'] = {
+            'records': len(large_data),
+            'columns': len(large_data[0]) if large_data else 0,
+            'test_timestamp': str(datetime.now())
+        }
+        
+        return jsonify({
+            'success': True,
+            'message': 'Large data stored in session successfully',
+            'data_size': len(str(large_data)),
+            'records': len(large_data)
+        })
+    except Exception as e:
+        return jsonify({'error': f'Large session test error: {str(e)}'}), 500
+
+@app.route('/validate_tw2_path', methods=['POST'])
+def validate_tw2_path():
+    """Validate that a TW2 file path exists and is accessible"""
+    try:
+        data = request.json
+        file_path = data.get('path', '').strip()
+        
+        if not file_path:
+            return jsonify({'valid': False, 'error': 'No path provided'})
+        
+        print(f"PATH VALIDATION: Checking path: {file_path}")
+        
+        # Check if path exists
+        if not os.path.exists(file_path):
+            return jsonify({
+                'valid': False, 
+                'error': f'Path not found: {file_path}',
+                'details': 'File does not exist at the specified location'
+            })
+        
+        # Check if it's a file (not directory)
+        if not os.path.isfile(file_path):
+            return jsonify({
+                'valid': False, 
+                'error': f'Path is not a file: {file_path}',
+                'details': 'The specified path points to a directory, not a file'
+            })
+        
+        # Check file extension
+        if not file_path.lower().endswith(('.tw2', '.mdb')):
+            return jsonify({
+                'valid': False, 
+                'error': 'Invalid file type',
+                'details': 'File must be a .tw2 or .mdb file'
+            })
+        
+        # Try to read the file to ensure it's accessible
+        try:
+            result = read_tw2_data_safe(file_path)
+            if result['success']:
+                return jsonify({
+                    'valid': True, 
+                    'message': 'Path is valid and file is readable',
+                    'records': result['row_count'],
+                    'columns': len(result['columns'])
+                })
+            else:
+                return jsonify({
+                    'valid': False, 
+                    'error': 'File is not readable',
+                    'details': f'Error reading TW2 file: {result["error"]}'
+                })
+        except Exception as e:
+            return jsonify({
+                'valid': False, 
+                'error': 'File access error',
+                'details': f'Unable to access file: {str(e)}'
+            })
+            
+    except Exception as e:
+        print(f"Error in path validation: {str(e)}")
+        return jsonify({'valid': False, 'error': f'Validation error: {str(e)}'}), 500
+
+@app.route('/refresh_and_compare', methods=['POST'])
+def refresh_and_compare():
+    """Refresh TW2 data from stored file path and automatically run comparison"""
+    try:
+        logger.info("REFRESH: ===== STARTING REFRESH AND COMPARE =====")
+        logger.info(f"REFRESH: Session keys available: {list(session.keys())}")
+        logger.info(f"REFRESH: Session ID from request: {request.cookies.get('session', 'NO SESSION COOKIE')}")
+        
+        data = request.json or {}
+        mbh_lat_lower_margin = float(data.get('mbh_lat_lower_margin', 15))
+        mbh_lat_upper_margin = float(data.get('mbh_lat_upper_margin', 25))
+        wpd_threshold = float(data.get('wpd_threshold', 5))
+        apd_threshold = float(data.get('apd_threshold', 0.25))
+        
+        logger.info(f"REFRESH: Configuration - Lower: {mbh_lat_lower_margin}%, Upper: {mbh_lat_upper_margin}%")
+        
+        # Check if we have stored TW2 file paths
+        original_tw2_path = session.get('original_tw2_path')
+        updated_tw2_path = session.get('updated_tw2_path')
+
+        # Allow request to override/set original path for this refresh
+        request_original_path = data.get('original_path')
+        if request_original_path:
+            print(f"REFRESH: Original path provided in request: {request_original_path}")
+            if os.path.exists(request_original_path):
+                original_tw2_path = request_original_path
+                session['original_tw2_path'] = request_original_path
+                print(f"REFRESH: [OK] Using and storing request original path in session")
+            else:
+                print(f"REFRESH: [WARNING] Request original path not accessible: {request_original_path}")
+        
+        logger.info(f"REFRESH: Original TW2 path from session: {original_tw2_path}")
+        logger.info(f"REFRESH: Local TW2 path from session: {updated_tw2_path}")
+        
+        if not updated_tw2_path:
+            logger.error("REFRESH: [ERROR] NO TW2 PATH FOUND IN SESSION")
+            logger.info(f"REFRESH: Available session data keys: {list(session.keys())}")
+            for key in session.keys():
+                if 'tw2' in key.lower():
+                    logger.info(f"REFRESH: Found TW2-related key: {key} = {type(session[key])}")
+            
+            return jsonify({
+                'success': False,
+                'error': 'No TW2 file path stored. Please upload an updated TW2 file first.',
+                'data': {
+                    'debug': {
+                        'session_keys': list(session.keys()),
+                        'has_updated_tw2_data': 'updated_tw2_data' in session,
+                        'has_updated_tw2_path': 'updated_tw2_path' in session,
+                        'session_debug_url': '/debug_session',
+                        'session_cookie_present': 'session' in request.cookies
+                    }
+                }
+            }), 400
+        
+        # Determine which path to use - prioritize original path if available and accessible
+        tw2_file_path = None
+        path_source = None
+        
+        if original_tw2_path and os.path.exists(original_tw2_path):
+            tw2_file_path = original_tw2_path
+            path_source = "original"
+            logger.info(f"REFRESH: [OK] Using original file path: {tw2_file_path}")
+            logger.info(f"REFRESH: [OK] File last modified: {os.path.getmtime(tw2_file_path)}")
+        elif original_tw2_path:
+            logger.warning(f"REFRESH: [WARNING] Original path specified but not accessible: {original_tw2_path}")
+            logger.warning("REFRESH: [WARNING] os.path.exists check failed")
+            logger.info("REFRESH: Falling back to local copy")
+            tw2_file_path = updated_tw2_path
+            path_source = "local"
+        else:
+            tw2_file_path = updated_tw2_path
+            path_source = "local"
+            logger.info("REFRESH: [INFO] No original path specified, using local copy")
+        
+        logger.info(f"REFRESH: Using TW2 file path ({path_source}): {tw2_file_path}")
+        logger.info(f"REFRESH: Absolute path: {os.path.abspath(tw2_file_path)}")
+        
+        # Check if selected file exists
+        if not os.path.exists(tw2_file_path):
+            logger.error(f"REFRESH: [ERROR] FILE NOT FOUND: {tw2_file_path}")
+            logger.info(f"REFRESH: Current working directory: {os.getcwd()}")
+            logger.info(f"REFRESH: Trying to list directory: {os.path.dirname(tw2_file_path)}")
+            try:
+                dir_contents = os.listdir(os.path.dirname(tw2_file_path))
+                logger.info(f"REFRESH: Directory contents: {dir_contents}")
+            except Exception as e:
+                logger.warning(f"REFRESH: Could not list directory: {e}")
+            
+            # Provide specific error message based on path source
+            if path_source == "original":
+                error_msg = f'Original TW2 file not found at {tw2_file_path}. File may have been moved or deleted.'
+                if updated_tw2_path and os.path.exists(updated_tw2_path):
+                    error_msg += f' Local copy is available at {updated_tw2_path}.'
+            else:
+                error_msg = f'TW2 file not found at {tw2_file_path}. File may have been moved or deleted.'
+            
+            return jsonify({'success': False, 'error': error_msg}), 404
+        
+        logger.info(f"REFRESH: [OK] File exists, proceeding to refresh data from: {tw2_file_path} ({path_source})")
+        
+        # Check mtime to avoid unnecessary re-reads
+        current_mtime = None
+        try:
+            current_mtime = os.path.getmtime(tw2_file_path)
+        except Exception:
+            current_mtime = None
+
+        skipped_read = False
+        if (
+            session.get('tw2_last_path') == tw2_file_path and
+            session.get('tw2_last_mtime') == current_mtime and
+            session.get('updated_tw2_data')
+        ):
+            # File unchanged and data present; skip disk read
+            logger.info("REFRESH: File unchanged since last read; skipping re-read and using cached session data")
+            skipped_read = True
+            result = {
+                'success': True,
+                'data': session.get('updated_tw2_data'),
+                'columns': session.get('updated_tw2_columns', []),
+                'row_count': session.get('updated_tw2_records', 0)
+            }
+        else:
+            # Re-read the TW2 file
+            result = read_tw2_data_safe(tw2_file_path)
+        
+        if not result['success']:
+            return jsonify({'success': False, 'error': f'Failed to read updated TW2 file: {result["error"]}'}), 500
+        
+        # Update session data with fresh TW2 data (or cached)
+        session['updated_tw2_data'] = result['data']
+        session['updated_tw2_columns'] = result['columns']
+        session['updated_tw2_records'] = result['row_count']
+        # Track mtime and path for change detection
+        session['tw2_last_path'] = tw2_file_path
+        if current_mtime is not None:
+            session['tw2_last_mtime'] = current_mtime
+        # Keep the original filename from session
+        
+        logger.info(f"Successfully refreshed TW2 data: {result['row_count']} records, {len(result['columns'])} columns")
+        
+        # Check if Excel data is available for comparison
+        if not session.get('excel_data'):
+            return jsonify({
+                'success': True,
+                'data': {
+                    'message': 'TW2 data refreshed successfully, but Excel data not loaded for comparison',
+                    'tw2_refreshed': True,
+                    'comparison_available': False,
+                    'path_source': path_source,
+                    'skipped_read': skipped_read
+                }
+            })
+        
+        # Automatically run the comparison with current configuration
+        comparison_result = compare_performance_data(
+            session['excel_data'],
+            session['updated_tw2_data'],
+            mbh_lat_lower_margin=mbh_lat_lower_margin,
+            mbh_lat_upper_margin=mbh_lat_upper_margin,
+            wpd_threshold=wpd_threshold,
+            apd_threshold=apd_threshold
+        )
+        
+        if comparison_result['success']:
+            return jsonify({
+                'success': True,
+                'data': {
+                    'message': 'TW2 data refreshed and comparison completed successfully',
+                    'tw2_refreshed': True,
+                    'comparison_available': True,
+                    'results': comparison_result['results'],
+                    'summary': comparison_result['summary'],
+                    'path_source': path_source,
+                    'skipped_read': skipped_read
+                }
+            })
+        else:
+            return jsonify({
+                'success': False,
+                'error': f'TW2 data refreshed but comparison failed: {comparison_result["error"]}',
+                'data': { 'tw2_refreshed': True, 'path_source': path_source }
+            }), 500
+            
+    except Exception as e:
+        logger.exception(f"Error in refresh_and_compare: {str(e)}")
+        return jsonify({'success': False, 'error': f'Error during refresh and compare: {str(e)}'}), 500
 
 if __name__ == '__main__':
     app.run(debug=True, port=5004)

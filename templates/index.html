@@ -26,10 +26,10 @@
         <!-- File Upload Section -->
         <div class="row mb-4">
             <!-- TW2 File Upload -->
-            <div class="col-md-6">
+            <div class="col-lg-4 col-md-6 mb-3">
                 <div class="card">
                     <div class="card-header bg-primary text-white">
-                        <h5 class="mb-0">TW2 Database File</h5>
+                        <h5 class="mb-0">Original TW2 File</h5>
                     </div>
                     <div class="card-body">
                         <div id="tw2-dropzone" class="dropzone">
@@ -51,7 +51,7 @@
             </div>
             
             <!-- Excel File Upload -->
-            <div class="col-md-6">
+            <div class="col-lg-4 col-md-6 mb-3">
                 <div class="card">
                     <div class="card-header bg-success text-white">
                         <h5 class="mb-0">Excel File</h5>
@@ -69,7 +69,76 @@
                             <p class="mb-1"><strong>File:</strong> <span id="excel-filename"></span></p>
                             <p class="mb-1"><strong>Records:</strong> <span id="excel-records"></span></p>
                             <div id="excel-columns" class="mb-2"></div>
+                            
+                            <!-- Excel Parsing Configuration -->
+                            <div class="card mt-3 mb-3 bg-light">
+                                <div class="card-body p-3">
+                                    <h6 class="mb-2">Parsing Configuration</h6>
+                                    <div class="row">
+                                        <div class="col-md-4">
+                                            <label for="data-start-row" class="form-label">Data starts at row:</label>
+                                            <input type="number" id="data-start-row" class="form-control form-control-sm" value="4" min="1" max="20">
+                                            <small class="text-muted">Row where actual data begins</small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <label for="header-rows" class="form-label">Header rows:</label>
+                                            <input type="number" id="header-rows" class="form-control form-control-sm" value="2" min="1" max="5">
+                                            <small class="text-muted">Number of header rows</small>
+                                        </div>
+                                        <div class="col-md-4">
+                                            <div class="form-check mt-4">
+                                                <input class="form-check-input" type="checkbox" id="skip-title-row" checked>
+                                                <label class="form-check-label" for="skip-title-row">
+                                                    Skip title row
+                                                </label>
+                                                <small class="d-block text-muted">Skip first row if it's a title</small>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
                             <button class="btn btn-sm btn-outline-success" onclick="viewExcelData()">View Sample Data</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Updated TW2 File Upload -->
+            <div class="col-lg-4 col-md-12 mb-3">
+                <div class="card">
+                    <div class="card-header bg-warning text-dark">
+                        <h5 class="mb-0">Updated TW2 File</h5>
+                        <small>Post-Titus Teams Processing</small>
+                    </div>
+                    <div class="card-body">
+                        <div id="updated-tw2-dropzone" class="dropzone">
+                            <p class="text-center mb-0">
+                                <i class="bi bi-cloud-upload" style="font-size: 2rem;"></i><br>
+                                Drag & Drop updated .tw2 file here<br>
+                                <small>or click to browse</small>
+                            </p>
+                            <input type="file" id="updated-tw2-file-input" accept=".tw2,.mdb" style="display: none;">
+                        </div>
+                        <div class="mt-3">
+                            <label for="original-tw2-path" class="form-label">
+                                <small>Original File Path (optional - for remote refresh)</small>
+                            </label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" id="original-tw2-path" class="form-control" 
+                                       placeholder="e.g., S:\Projects\936290 - UND Flight Operations Building\Data\936290 - UND Flight Operations.tw2"
+                                       title="Enter the full path to your original TW2 file for remote refresh capability">
+                                <button class="btn btn-outline-secondary" type="button" id="validate-path-btn" onclick="validateTW2Path()">
+                                    <i class="bi bi-check-circle"></i> Validate
+                                </button>
+                            </div>
+                            <div id="path-validation-feedback" class="mt-1" style="display: none;"></div>
+                        </div>
+                        <div id="updated-tw2-file-info" class="mt-3" style="display: none;">
+                            <p class="mb-1"><strong>File:</strong> <span id="updated-tw2-filename"></span></p>
+                            <p class="mb-1"><strong>Records:</strong> <span id="updated-tw2-records"></span></p>
+                            <div id="updated-tw2-columns" class="mb-2"></div>
+                            <button class="btn btn-sm btn-outline-warning" onclick="viewUpdatedTW2Data()">View Sample Data</button>
                         </div>
                     </div>
                 </div>
@@ -139,6 +208,9 @@
                             <li class="nav-item">
                                 <a class="nav-link" id="excel-tab" data-bs-toggle="tab" href="#excel-data">Excel Data</a>
                             </li>
+                            <li class="nav-item">
+                                <a class="nav-link" id="comparison-tab" data-bs-toggle="tab" href="#comparison-data">Performance Comparison</a>
+                            </li>
                         </ul>
                     </div>
                     <div class="card-body">
@@ -155,6 +227,66 @@
                                     <table id="excel-table" class="table table-striped table-sm">
                                         <!-- Excel data will be inserted here -->
                                     </table>
+                                </div>
+                            </div>
+                            <div class="tab-pane fade" id="comparison-data">
+                                <!-- Comparison Configuration Panel -->
+                                <div class="card mb-4 bg-light">
+                                    <div class="card-body">
+                                        <h6 class="mb-3">Performance Comparison Configuration</h6>
+                                        <div class="row">
+                                            <div class="col-md-3">
+                                                <label for="mbh-lat-lower-margin" class="form-label">MBH/LAT Lower Margin (%):</label>
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">-</span>
+                                                    <input type="number" id="mbh-lat-lower-margin" class="form-control" value="15" min="0" max="100" step="0.1">
+                                                    <span class="input-group-text">%</span>
+                                                </div>
+                                                <small class="text-muted">Max underperformance allowed</small>
+                                            </div>
+                                            <div class="col-md-3">
+                                                <label for="mbh-lat-upper-margin" class="form-label">MBH/LAT Upper Margin (%):</label>
+                                                <div class="input-group input-group-sm">
+                                                    <span class="input-group-text">+</span>
+                                                    <input type="number" id="mbh-lat-upper-margin" class="form-control" value="25" min="0" max="100" step="0.1">
+                                                    <span class="input-group-text">%</span>
+                                                </div>
+                                                <small class="text-muted">Max overperformance allowed</small>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="wpd-threshold" class="form-label">WPD Threshold:</label>
+                                                <input type="number" id="wpd-threshold" class="form-control form-control-sm" value="5" min="0" max="50" step="0.1">
+                                                <small class="text-muted">Alert if over</small>
+                                            </div>
+                                            <div class="col-md-2">
+                                                <label for="apd-threshold" class="form-label">APD Threshold:</label>
+                                                <input type="number" id="apd-threshold" class="form-control form-control-sm" value="0.25" min="0" max="5" step="0.01">
+                                                <small class="text-muted">Alert if over</small>
+                                            </div>
+                                            <div class="col-md-2 d-flex align-items-end">
+                                                <button class="btn btn-primary w-100" onclick="runPerformanceComparison()" id="compare-btn" disabled>
+                                                    <i class="bi bi-bar-chart"></i> Compare
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <!-- Comparison Results -->
+                                <div id="comparison-results" style="display: none;">
+                                    <div class="table-responsive">
+                                        <table id="comparison-table" class="table table-striped table-sm">
+                                            <!-- Comparison results will be inserted here -->
+                                        </table>
+                                    </div>
+                                    <div class="mt-3">
+                                        <button class="btn btn-primary btn-sm me-2" onclick="refreshAndCompare()" id="refresh-btn">
+                                            <i class="bi bi-arrow-clockwise"></i> Refresh & Compare
+                                        </button>
+                                        <button class="btn btn-success btn-sm" onclick="exportComparisonResults()">
+                                            <i class="bi bi-download"></i> Export Results
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
                         </div>
@@ -521,419 +653,6 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        // Global variables
-        let tw2Data = null;
-        let excelData = null;
-        let mappingFields = null;
-        let currentMappings = {};
-
-        // TW2 field descriptions for tooltips
-        const fieldDescriptions = {
-            'Tag': 'Unit identifier - Must match Excel Unit_No (e.g., V-1-1 → V-1-01)',
-            'UnitSize': 'VAV unit size designation (e.g., 6, 8, 10, 14, 24x16)',
-            'InletSize': 'Air inlet size in inches (e.g., 6", 8", 10", 14")',
-            'CFMDesign': 'Design air flow rate in CFM - Maximum airflow capacity',
-            'CFMMinPrime': 'Minimum primary airflow in CFM when heating/cooling',
-            'HeatingPrime': 'Primary airflow during heating mode in CFM',
-            'HWCFM': 'Hot water coil airflow in CFM - Airflow through heating coil',
-            'HWGPM': 'Hot water flow rate in GPM (gallons per minute)'
-        };
-
-        // Initialize on page load
-        $(document).ready(function() {
-            setupDropzones();
-            setupFileInputs();
-        });
-
-        // Setup drag and drop zones
-        function setupDropzones() {
-            // TW2 Dropzone
-            setupDropzone('tw2-dropzone', 'tw2-file-input', handleTW2File);
-            // Excel Dropzone
-            setupDropzone('excel-dropzone', 'excel-file-input', handleExcelFile);
-        }
-
-        function setupDropzone(dropzoneId, inputId, handler) {
-            const dropzone = document.getElementById(dropzoneId);
-            const fileInput = document.getElementById(inputId);
-            
-            dropzone.addEventListener('click', () => fileInput.click());
-            
-            dropzone.addEventListener('dragover', (e) => {
-                e.preventDefault();
-                dropzone.classList.add('dragover');
-            });
-            
-            dropzone.addEventListener('dragleave', () => {
-                dropzone.classList.remove('dragover');
-            });
-            
-            dropzone.addEventListener('drop', (e) => {
-                e.preventDefault();
-                dropzone.classList.remove('dragover');
-                
-                const files = e.dataTransfer.files;
-                if (files.length > 0) {
-                    handler(files[0]);
-                }
-            });
-        }
-
-        // Setup file input handlers
-        function setupFileInputs() {
-            document.getElementById('tw2-file-input').addEventListener('change', (e) => {
-                if (e.target.files.length > 0) {
-                    handleTW2File(e.target.files[0]);
-                }
-            });
-            
-            document.getElementById('excel-file-input').addEventListener('change', (e) => {
-                if (e.target.files.length > 0) {
-                    handleExcelFile(e.target.files[0]);
-                }
-            });
-        }
-
-        // Handle TW2 file upload
-        function handleTW2File(file) {
-            if (!file.name.endsWith('.tw2') && !file.name.endsWith('.mdb')) {
-                showToast('Please select a valid .tw2 or .mdb file', 'error');
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            showToast('Uploading TW2 file...', 'info');
-            
-            uploadFile('/upload_tw2', formData, (data) => {
-                tw2Data = data;
-                document.getElementById('tw2-filename').textContent = file.name;
-                document.getElementById('tw2-records').textContent = data.row_count;
-                
-                // Show some column names
-                const columnsDiv = document.getElementById('tw2-columns');
-                const keyColumns = ['Tag', 'UnitSize', 'InletSize', 'CFMDesign', 'HWCFM', 'HWGPM'];
-                const availableKeyColumns = keyColumns.filter(col => data.columns.includes(col));
-                columnsDiv.innerHTML = `<small><strong>Key columns:</strong> ${availableKeyColumns.join(', ')}</small>`;
-                
-                document.getElementById('tw2-file-info').style.display = 'block';
-                document.getElementById('tw2-dropzone').classList.add('has-file');
-                showToast('TW2 file loaded successfully', 'success');
-                checkBothFilesLoaded();
-            });
-        }
-
-        // Handle Excel file upload
-        function handleExcelFile(file) {
-            if (!file.name.endsWith('.xlsx') && !file.name.endsWith('.xls')) {
-                showToast('Please select a valid Excel file', 'error');
-                return;
-            }
-            
-            const formData = new FormData();
-            formData.append('file', file);
-            
-            showToast('Uploading Excel file...', 'info');
-            
-            uploadFile('/upload_excel', formData, (data) => {
-                excelData = data;
-                document.getElementById('excel-filename').textContent = file.name;
-                document.getElementById('excel-records').textContent = data.row_count;
-                
-                // Show column names
-                const columnsDiv = document.getElementById('excel-columns');
-                columnsDiv.innerHTML = `<small><strong>Columns:</strong> ${data.columns.slice(0, 6).join(', ')}...</small>`;
-                
-                document.getElementById('excel-file-info').style.display = 'block';
-                document.getElementById('excel-dropzone').classList.add('has-file');
-                showToast('Excel file loaded successfully', 'success');
-                checkBothFilesLoaded();
-            });
-        }
-
-        // Generic file upload function
-        function uploadFile(endpoint, formData, successCallback) {
-            fetch(endpoint, {
-                method: 'POST',
-                body: formData
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    successCallback(data);
-                } else {
-                    showToast('Error: ' + (data.error || 'Upload failed'), 'error');
-                }
-            })
-            .catch(error => {
-                console.error('Upload error:', error);
-                showToast('Network error during upload', 'error');
-            });
-        }
-
-        // Check if both files are loaded
-        function checkBothFilesLoaded() {
-            if (tw2Data && excelData) {
-                loadMappingFields();
-                document.getElementById('mapping-section').style.display = 'block';
-            }
-        }
-
-        // Load mapping fields
-        function loadMappingFields() {
-            fetch('/get_mapping_fields')
-            .then(response => response.json())
-            .then(data => {
-                mappingFields = data;
-                buildMappingTable();
-            })
-            .catch(error => {
-                showToast('Error loading mapping fields: ' + error, 'error');
-            });
-        }
-
-        // Build the mapping table
-        function buildMappingTable() {
-            const tbody = document.getElementById('mapping-table');
-            tbody.innerHTML = '';
-            
-            mappingFields.target_fields.forEach(field => {
-                const row = document.createElement('tr');
-                
-                // Target field column with tooltip
-                const targetCell = document.createElement('td');
-                const description = fieldDescriptions[field] || 'No description available';
-                targetCell.innerHTML = `<strong data-bs-toggle="tooltip" data-bs-placement="right" title="${description}" style="cursor: help; border-bottom: 1px dotted #999;">${field}</strong>`;
-                row.appendChild(targetCell);
-                
-                // Source field dropdown
-                const sourceCell = document.createElement('td');
-                const select = document.createElement('select');
-                select.className = 'form-select form-select-sm';
-                select.id = `mapping-${field}`;
-                
-                // Add empty option
-                const emptyOption = document.createElement('option');
-                emptyOption.value = '';
-                emptyOption.textContent = '-- Select Excel Column --';
-                select.appendChild(emptyOption);
-                
-                // Add Excel columns as options
-                mappingFields.excel_fields.forEach(excelField => {
-                    const option = document.createElement('option');
-                    option.value = excelField;
-                    option.textContent = excelField;
-                    
-                    // Auto-select suggested mapping
-                    if (mappingFields.suggested_mappings[field] === excelField) {
-                        option.selected = true;
-                        currentMappings[field] = excelField;
-                    }
-                    
-                    select.appendChild(option);
-                });
-                
-                select.addEventListener('change', (e) => {
-                    if (e.target.value) {
-                        currentMappings[field] = e.target.value;
-                    } else {
-                        delete currentMappings[field];
-                    }
-                    updateApplyButton();
-                });
-                
-                sourceCell.appendChild(select);
-                row.appendChild(sourceCell);
-                
-                // Status column
-                const statusCell = document.createElement('td');
-                if (field === 'Tag') {
-                    statusCell.innerHTML = '<span class="badge bg-danger">Required</span>';
-                } else {
-                    statusCell.innerHTML = '<span class="badge bg-secondary">Optional</span>';
-                }
-                row.appendChild(statusCell);
-                
-                tbody.appendChild(row);
-            });
-            
-            // Initialize Bootstrap tooltips
-            var tooltipTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="tooltip"]'));
-            var tooltipList = tooltipTriggerList.map(function (tooltipTriggerEl) {
-                return new bootstrap.Tooltip(tooltipTriggerEl);
-            });
-            
-            updateApplyButton();
-        }
-
-        function updateApplyButton() {
-            const applyBtn = document.getElementById('apply-mapping-btn');
-            // Enable button if Tag is mapped
-            if (currentMappings.Tag) {
-                applyBtn.disabled = false;
-            } else {
-                applyBtn.disabled = true;
-            }
-        }
-
-        // View TW2 Data
-        function viewTW2Data() {
-            if (!tw2Data) return;
-            
-            document.getElementById('data-preview-section').style.display = 'block';
-            document.getElementById('tw2-tab').click();
-            
-            const table = document.getElementById('tw2-table');
-            
-            // Key columns to display
-            const displayColumns = ['Tag', 'UnitSize', 'InletSize', 'CFMDesign', 'CFMMinPrime', 'HWCFM', 'HWGPM'];
-            const availableColumns = displayColumns.filter(col => tw2Data.columns.includes(col));
-            
-            // Create header
-            let headerHtml = '<thead><tr>';
-            availableColumns.forEach(col => {
-                headerHtml += `<th>${col}</th>`;
-            });
-            headerHtml += '</tr></thead>';
-            
-            // Create body
-            let bodyHtml = '<tbody>';
-            tw2Data.data.slice(0, 10).forEach(row => {
-                bodyHtml += '<tr>';
-                availableColumns.forEach(col => {
-                    let value = row[col];
-                    if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${value}</td>`;
-                });
-                bodyHtml += '</tr>';
-            });
-            bodyHtml += '</tbody>';
-            
-            table.innerHTML = headerHtml + bodyHtml;
-        }
-
-        // View Excel Data
-        function viewExcelData() {
-            if (!excelData) return;
-            
-            document.getElementById('data-preview-section').style.display = 'block';
-            document.getElementById('excel-tab').click();
-            
-            const table = document.getElementById('excel-table');
-            
-            // Create header
-            let headerHtml = '<thead><tr>';
-            excelData.columns.slice(0, 8).forEach(col => {
-                headerHtml += `<th>${col}</th>`;
-            });
-            headerHtml += '</tr></thead>';
-            
-            // Create body
-            let bodyHtml = '<tbody>';
-            excelData.data.slice(0, 10).forEach(row => {
-                bodyHtml += '<tr>';
-                excelData.columns.slice(0, 8).forEach(col => {
-                    let value = row[col];
-                    if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${value}</td>`;
-                });
-                bodyHtml += '</tr>';
-            });
-            bodyHtml += '</tbody>';
-            
-            table.innerHTML = headerHtml + bodyHtml;
-        }
-
-        // Apply mapping
-        function applyMapping() {
-            if (!currentMappings.Tag) {
-                showToast('Please map the Tag field first (required for matching records)', 'error');
-                return;
-            }
-            
-            if (!confirm('Are you sure you want to apply these mappings? This will update your TW2 database. A backup will be created automatically.')) {
-                return;
-            }
-            
-            showToast('Applying mappings and updating database...', 'info');
-            
-            fetch('/apply_mapping', {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify({ mappings: currentMappings })
-            })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    let message = `Successfully updated ${data.updated_records} records.`;
-                    if (data.backup_file) {
-                        message += ` Backup saved as: ${data.backup_file.split('\\').pop()}`;
-                    }
-                    
-                    document.getElementById('results-content').innerHTML = `
-                        <h5>Update Complete!</h5>
-                        <p>${message}</p>
-                        ${data.errors ? `<p><strong>Warnings:</strong> ${data.errors.length} issues occurred. Check console for details.</p>` : ''}
-                    `;
-                    document.getElementById('results-section').style.display = 'block';
-                    
-                    showToast('Database updated successfully!', 'success');
-                    
-                    if (data.errors && data.errors.length > 0) {
-                        console.error('Update errors:', data.errors);
-                    }
-                } else {
-                    showToast('Error applying mappings: ' + data.error, 'error');
-                }
-            })
-            .catch(error => {
-                showToast('Error: ' + error, 'error');
-            });
-        }
-
-        // Reset mapping
-        function resetMapping() {
-            currentMappings = {};
-            if (mappingFields) {
-                buildMappingTable();
-            }
-            document.getElementById('results-section').style.display = 'none';
-            showToast('Mappings reset', 'info');
-        }
-
-        // Show toast message
-        function showToast(message, type = 'info') {
-            const container = document.getElementById('status-messages');
-            
-            const toastId = 'toast_' + Date.now();
-            const toast = document.createElement('div');
-            toast.id = toastId;
-            toast.className = `toast ${type} show`;
-            toast.setAttribute('role', 'alert');
-            toast.innerHTML = `
-                <div class="toast-header">
-                    <strong class="me-auto">${type.charAt(0).toUpperCase() + type.slice(1)}</strong>
-                    <button type="button" class="btn-close" onclick="document.getElementById('${toastId}').remove()"></button>
-                </div>
-                <div class="toast-body">
-                    ${message}
-                </div>
-            `;
-            
-            container.appendChild(toast);
-            
-            // Auto remove after 5 seconds for success/info, keep errors longer
-            const timeout = type === 'error' ? 10000 : 5000;
-            setTimeout(() => {
-                if (document.getElementById(toastId)) {
-                    document.getElementById(toastId).remove();
-                }
-            }, timeout);
-        }
-    </script>
+    <script src="/static/app.js"></script>
 </body>
 </html>
