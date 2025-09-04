@@ -23,7 +23,7 @@ A web-based tool for combining Excel spreadsheet data with Titus Teams TW2 datab
    pip install -r requirements.txt
    ```
 
-2. **Start the Application**:
+2. **Start the Application (Dev)**:
    ```bash
    python app.py
    ```
@@ -32,6 +32,29 @@ A web-based tool for combining Excel spreadsheet data with Titus Teams TW2 datab
    Navigate to `http://127.0.0.1:5004`
 
 4. **Click Instructions**: Use the built-in instructions button for complete workflow guidance
+
+## Start/Stop Server
+
+- Start (development):
+  - Command: `python app.py`
+  - Defaults: listens on `127.0.0.1:5004` with debug enabled.
+- Stop: press `Ctrl + C` in the terminal running the server.
+- Port in use? Either stop the existing process, or change the port in `app.py` (the `app.run(..., port=5004)` line) and restart.
+
+### Optional: Virtual Environment
+```bash
+python -m venv .venv
+.venv\\Scripts\\activate   # Windows
+pip install -r requirements.txt
+python app.py
+```
+
+### Optional: Production Notes
+- For production, run behind a WSGI server and reverse proxy.
+- Example with Waitress (Windows-friendly):
+  1) `pip install waitress`
+  2) `python -m waitress --listen=0.0.0.0:5004 app:app`
+  - Ensure firewall allows inbound connections if serving across a network.
 
 ## System Requirements
 
