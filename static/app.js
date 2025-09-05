@@ -103,7 +103,7 @@
         function formatByColumn(columnName, value) {
             const norm = normalizeColumnName(columnName);
             if (INTEGER_ONLY_COLS.has(norm)) {
-                return value === null || value === undefined ?  : value;
+                return value === null || value === undefined ? '' : value;
             }
             return formatNumber(value);
         }
