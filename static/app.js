@@ -91,10 +91,8 @@
             return value;
         }
 
-        // Columns that should be shown as-is (no decimal formatting)
-        const INTEGER_ONLY_COLS = new Set([
-            "unitsize", "inletsize", "fkeyid", "typeid", "quantity", "unit_size", "inlet_size"
-        ]);
+        // Only round MBH/LAT/WPD/APD columns; show others as-is
+        const ROUND_KEYS = ['mbh', 'lat', 'wpd', 'apd'];
 
         function normalizeColumnName(name) {
             return String(name || "").replace(/[\s]/g, " ").replace(/[ _]+/g, "_").replace(/_/g, "").toLowerCase();
@@ -102,10 +100,11 @@
 
         function formatByColumn(columnName, value) {
             const norm = normalizeColumnName(columnName);
-            if (INTEGER_ONLY_COLS.has(norm)) {
-                return value === null || value === undefined ? '' : value;
+            const shouldRound = ROUND_KEYS.some(k => norm.includes(k));
+            if (shouldRound) {
+                return formatNumber(value);
             }
-            return formatNumber(value);
+            return value === null || value === undefined ? '' : value;
         }
 
 
