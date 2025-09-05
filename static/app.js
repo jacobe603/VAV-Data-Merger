@@ -82,7 +82,7 @@
 
         // Format numbers to two decimals when possible
         function formatNumber(value) {
-            if (value === null || value === undefined) return ;
+            if (value === null || value === undefined) return "";
             if (typeof value === "number" && isFinite(value)) return value.toFixed(2);
             if (typeof value === "string") {
                 const num = Number(value);
@@ -90,6 +90,24 @@
             }
             return value;
         }
+
+        // Columns that should be shown as-is (no decimal formatting)
+        const INTEGER_ONLY_COLS = new Set([
+            "unitsize", "inletsize", "fkeyid", "typeid", "quantity", "unit_size", "inlet_size"
+        ]);
+
+        function normalizeColumnName(name) {
+            return String(name || "").replace(/[\s]/g, " ").replace(/[ _]+/g, "_").replace(/_/g, "").toLowerCase();
+        }
+
+        function formatByColumn(columnName, value) {
+            const norm = normalizeColumnName(columnName);
+            if (INTEGER_ONLY_COLS.has(norm)) {
+                return value === null || value === undefined ?  : value;
+            }
+            return formatNumber(value);
+        }
+
 
 
         // Navigate to the Performance Comparison tab/view
@@ -372,7 +390,7 @@
                 availableColumns.forEach(col => {
                     let value = row[col];
                     if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${formatNumber(value)}</td>`;
+                    bodyHtml += `<td>${formatByColumn(col, value)}</td>`;
                 });
                 bodyHtml += '</tr>';
             });
@@ -404,7 +422,7 @@
                 excelData.columns.forEach(col => {  // Show ALL columns including Unit_No
                     let value = row[col];
                     if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${formatNumber(value)}</td>`;
+                    bodyHtml += `<td>${formatByColumn(col, value)}</td>`;
                 });
                 bodyHtml += '</tr>';
             });
@@ -614,7 +632,7 @@
                         availableColumns.forEach(col => {
                             let value = row[col];
                             if (value === null || value === undefined) value = '';
-                            bodyHtml += `<td>${formatNumber(value)}</td>`;
+                            bodyHtml += `<td>${formatByColumn(col, value)}</td>`;
                         });
                         bodyHtml += '</tr>';
                     });
