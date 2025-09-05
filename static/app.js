@@ -80,6 +80,18 @@
             });
         }
 
+        // Format numbers to two decimals when possible
+        function formatNumber(value) {
+            if (value === null || value === undefined) return ;
+            if (typeof value === "number" && isFinite(value)) return value.toFixed(2);
+            if (typeof value === "string") {
+                const num = Number(value);
+                if (!Number.isNaN(num) && isFinite(num)) return num.toFixed(2);
+            }
+            return value;
+        }
+
+
         // Navigate to the Performance Comparison tab/view
         function showComparisonView() {
             try {
@@ -360,7 +372,7 @@
                 availableColumns.forEach(col => {
                     let value = row[col];
                     if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${value}</td>`;
+                    bodyHtml += `<td>${formatNumber(value)}</td>`;
                 });
                 bodyHtml += '</tr>';
             });
@@ -392,7 +404,7 @@
                 excelData.columns.forEach(col => {  // Show ALL columns including Unit_No
                     let value = row[col];
                     if (value === null || value === undefined) value = '';
-                    bodyHtml += `<td>${value}</td>`;
+                    bodyHtml += `<td>${formatNumber(value)}</td>`;
                 });
                 bodyHtml += '</tr>';
             });
@@ -602,7 +614,7 @@
                         availableColumns.forEach(col => {
                             let value = row[col];
                             if (value === null || value === undefined) value = '';
-                            bodyHtml += `<td>${value}</td>`;
+                            bodyHtml += `<td>${formatNumber(value)}</td>`;
                         });
                         bodyHtml += '</tr>';
                     });
@@ -780,14 +792,14 @@
                     <tr class="${statusClass}">
                         <td class="unit-tag">${result.unit_tag}</td>
                         <td class="status-${result.status.toLowerCase()}">${result.status}</td>
-                        <td class="comparison-value">${result.excel_mbh || 'N/A'}</td>
-                        <td class="comparison-value">${result.tw2_mbh || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.excel_mbh) || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.tw2_mbh) || 'N/A'}</td>
                         <td class="percentage-diff">${result.mbh_diff}</td>
-                        <td class="comparison-value">${result.excel_lat || 'N/A'}</td>
-                        <td class="comparison-value">${result.tw2_lat || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.excel_lat) || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.tw2_lat) || 'N/A'}</td>
                         <td class="percentage-diff">${result.lat_diff}</td>
-                        <td class="comparison-value">${result.tw2_wpd || 'N/A'}</td>
-                        <td class="comparison-value">${result.tw2_apd || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.tw2_wpd) || 'N/A'}</td>
+                        <td class="comparison-value">${formatNumber(result.tw2_apd) || 'N/A'}</td>
                     </tr>
                 `;
             });
