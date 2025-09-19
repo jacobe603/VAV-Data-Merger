@@ -86,7 +86,7 @@ if __name__ == "__main__":
     import os
     
     print("=== Analyzing .tw2 (MDB) file ===")
-    mdb_file = r"C:\Users\Jacob\Claude\VAV\936290 - UND Flight Operations.tw2"
+    mdb_file = r"S:\Projects\936290 - UND Flight Operations Building - Grand Forks\Submittals\Titus VAVs\Data\936290 - UND Flight Operations.tw2"
     tables, columns = analyze_mdb_file(mdb_file)
     
     print("\n=== Analyzing XLSX file ===")
