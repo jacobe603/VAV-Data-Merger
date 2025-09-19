@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, Response, session
+from flask import Flask, render_template, request, jsonify, Response, session, send_file
 import logging
 from flask_cors import CORS
 from flask_session import Session
@@ -245,6 +245,31 @@ def normalize_header_text(text):
     cleaned = cleaned.replace('&', 'and').replace('"', '').replace("'", "")
     return cleaned
 
+
+
+def is_probably_header_value(value):
+    """Heuristic to decide if a cell looks like part of a header row."""
+    if value is None:
+        return False
+
+    if isinstance(value, (int, float)):
+        return False
+
+    text = str(value).strip()
+    if not text:
+        return False
+
+    lower_text = text.lower()
+    if lower_text in {'n/a', 'na', 'nan'}:
+        return False
+
+    if any(char.isdigit() for char in text):
+        letters = sum(1 for c in text if c.isalpha())
+        digits = sum(1 for c in text if c.isdigit())
+        return letters > digits
+
+    return True
+
 def combine_multi_row_headers(df, header_rows=2, title_row_offset=0):
     """Combine multi-row headers into single header row
     
@@ -254,31 +279,34 @@ def combine_multi_row_headers(df, header_rows=2, title_row_offset=0):
         title_row_offset: Number of title rows to skip before headers (default 0)
     """
     headers = []
-    
-    # Get the header rows, skipping title rows
+
     start_row = title_row_offset
     end_row = title_row_offset + header_rows
     header_data = df.iloc[start_row:end_row]
-    
+
+    use_second_row = header_rows > 1 and len(header_data) > 1
+    if use_second_row:
+        second_row_values = [val for val in header_data.iloc[1].tolist() if not pd.isna(val)]
+        if second_row_values:
+            header_like_count = sum(1 for val in second_row_values if is_probably_header_value(val))
+            if header_like_count < len(second_row_values) * 0.5:
+                use_second_row = False
+
     for col_idx in range(len(df.columns)):
-        # Get values from the header rows for this column
         row1_val = normalize_header_text(header_data.iloc[0, col_idx]) if not pd.isna(header_data.iloc[0, col_idx]) else ""
-        row2_val = normalize_header_text(header_data.iloc[1, col_idx]) if header_rows > 1 and len(header_data) > 1 and not pd.isna(header_data.iloc[1, col_idx]) else ""
-        
-        # Combine headers intelligently
+        row2_val = ""
+        if use_second_row and not pd.isna(header_data.iloc[1, col_idx]):
+            row2_val = normalize_header_text(header_data.iloc[1, col_idx])
+
         if row1_val and row2_val:
-            # Both rows have content - combine them
             combined = f"{row1_val}_{row2_val}"
         elif row1_val:
-            # Only first row has content
             combined = row1_val
         elif row2_val:
-            # Only second row has content  
             combined = row2_val
         else:
-            # No content in either row
             combined = f"Column_{col_idx + 1}"
-            
+
         headers.append(combined)
     
     return headers
@@ -429,6 +457,14 @@ def read_excel_data_safe(file_path, data_start_row=3, header_rows=2, skip_title_
         print(f"Configuration - Data start row: {data_start_row}, Header rows: {header_rows}, Skip title: {skip_title_row}")
         print(f"Title row offset: {title_row_offset}")
         
+        # Auto-adjust title row offset if the first row is actual headers
+        first_row_values = [val for val in df_raw.iloc[0].tolist() if not pd.isna(val)]
+        if skip_title_row and first_row_values:
+            header_like = sum(1 for val in first_row_values if is_probably_header_value(val))
+            if header_like >= max(1, len(first_row_values) // 2):
+                title_row_offset = 0
+                print('AUTO-DETECT: using first row as headers')
+
         # Combine multi-row headers based on configuration
         excel_headers = combine_multi_row_headers(df_raw, header_rows=header_rows, title_row_offset=title_row_offset)
         print(f"Combined headers detected: {excel_headers}")
@@ -501,6 +537,72 @@ def read_excel_data_safe(file_path, data_start_row=3, header_rows=2, skip_title_
             'success': False,
             'error': str(e).encode('ascii', 'ignore').decode('ascii')
         }
+
+
+def reload_tw2_data_from_disk(preferred_paths=None):
+    """Reload TW2 data from disk, updating the session with the latest contents."""
+    candidates = []
+    seen_paths = set()
+
+    def _add_candidate(label, candidate_path):
+        if not candidate_path:
+            return
+        sanitized = _sanitize_path(str(candidate_path).strip())
+        if not sanitized:
+            return
+        normalized = os.path.abspath(sanitized)
+        if normalized in seen_paths:
+            return
+        candidates.append((label, sanitized))
+        seen_paths.add(normalized)
+
+    if preferred_paths:
+        for label, candidate_path in preferred_paths:
+            _add_candidate(label, candidate_path)
+
+    _add_candidate('original', session.get('original_tw2_path'))
+    _add_candidate('local', session.get('updated_tw2_path'))
+    _add_candidate('tw2', session.get('tw2_file'))
+
+    if not candidates:
+        return {'success': False, 'error': 'No TW2 file path available', 'code': 404}
+
+    last_error = {'message': 'Unable to reload TW2 data', 'code': 500}
+
+    for label, candidate_path in candidates:
+        if not os.path.exists(candidate_path):
+            last_error = {'message': f'File not found at {candidate_path}', 'code': 404}
+            continue
+
+        result = read_tw2_data_safe(candidate_path)
+        if result.get('success'):
+            session['updated_tw2_data'] = result['data']
+            session['updated_tw2_columns'] = result['columns']
+            session['updated_tw2_records'] = result['row_count']
+            session['updated_tw2_filename'] = os.path.basename(candidate_path)
+            session['last_tw2_reload_path'] = candidate_path
+            session['last_tw2_reload_source'] = label
+            session['tw2_last_path'] = candidate_path
+            try:
+                session['tw2_last_mtime'] = os.path.getmtime(candidate_path)
+            except Exception:
+                session.pop('tw2_last_mtime', None)
+            return {
+                'success': True,
+                'path': candidate_path,
+                'source': label,
+                'row_count': result['row_count'],
+                'column_count': len(result['columns'])
+            }
+        else:
+            last_error = {
+                'message': result.get('error', 'Unknown error while reading TW2 file'),
+                'code': 500
+            }
+
+    return {'success': False, 'error': last_error['message'], 'code': last_error['code']}
+
+
 
 def normalize_unit_tag(tag):
     """Normalize unit tags by adding zero-padding: V-1-1 -> V-1-01, V-1-12 -> V-1-12"""
@@ -1149,6 +1251,144 @@ def apply_mapping():
             status=500
         )
 
+
+@app.route('/download_merged_tw2', methods=['GET'])
+def download_merged_tw2():
+    """Download the merged TW2 file"""
+    try:
+        if not session.get('tw2_file'):
+            return jsonify({'error': 'No TW2 file available for download'}), 400
+
+        tw2_file_path = session['tw2_file']
+        if not os.path.exists(tw2_file_path):
+            return jsonify({'error': 'TW2 file not found'}), 404
+
+        original_filename = os.path.basename(tw2_file_path)
+        name_part, ext = os.path.splitext(original_filename)
+        download_name = f"{name_part}_merged{ext}"
+
+        return send_file(
+            tw2_file_path,
+            as_attachment=True,
+            download_name=download_name,
+            mimetype='application/octet-stream'
+        )
+    except Exception as e:
+        return jsonify({'error': f'Failed to download TW2 file: {str(e)}'}), 500
+
+
+@app.route('/save_hw_rows', methods=['POST'])
+def save_hw_rows():
+    """Save HW Rows changes to the TW2 file"""
+    try:
+        data = request.get_json(silent=True) or {}
+        edits = data.get('edits', [])
+
+        incoming_path = data.get('original_path')
+        if incoming_path is not None:
+            sanitized_path = _sanitize_path(str(incoming_path).strip())
+            if sanitized_path:
+                session['original_tw2_path'] = sanitized_path
+            else:
+                session.pop('original_tw2_path', None)
+
+        if not edits:
+            return jsonify({'success': False, 'error': 'No edits provided'}), 400
+
+        for edit in edits:
+            hw_rows = edit.get('hw_rows')
+            if hw_rows not in [1, 2, 3, 4]:
+                return jsonify({'success': False, 'error': f'Invalid HW Rows value: {hw_rows}. Must be 1, 2, 3, or 4'}), 400
+
+        original_tw2_path = session.get('original_tw2_path')
+        updated_tw2_path = session.get('updated_tw2_path')
+        tw2_file_path = session.get('tw2_file')
+
+        target_file = None
+        if original_tw2_path and os.path.exists(original_tw2_path):
+            target_file = original_tw2_path
+        elif updated_tw2_path and os.path.exists(updated_tw2_path):
+            target_file = updated_tw2_path
+        elif tw2_file_path and os.path.exists(tw2_file_path):
+            target_file = tw2_file_path
+        else:
+            return jsonify({
+                'success': False,
+                'error': 'No accessible TW2 file found. Please ensure the Original File Path is set and accessible.'
+            }), 400
+
+        backup_path = target_file + '.backup_hw_rows_' + datetime.now().strftime('%Y%m%d_%H%M%S')
+        shutil.copy2(target_file, backup_path)
+
+        conn = get_mdb_connection(target_file)
+        cursor = conn.cursor()
+
+        additional_hw_columns = []
+        try:
+            cursor.execute("SELECT * FROM tblSchedule WHERE 1=0")
+            column_lookup = {(desc[0] or '').lower(): desc[0] for desc in (cursor.description or [])}
+            for key in ('hwrows', 'hwrow'):
+                column_name = column_lookup.get(key)
+                if column_name and column_name.lower() != 'hwrowscalc' and column_name not in additional_hw_columns:
+                    additional_hw_columns.append(column_name)
+        except Exception as e:
+            print(f"HW ROWS: Unable to inspect columns: {e}")
+
+        updated_count = 0
+        errors = []
+
+        for edit in edits:
+            unit_tag = edit.get('unit_tag')
+            hw_rows = edit.get('hw_rows')
+
+            try:
+                clean_tag = unit_tag.split('  ')[0] if '  ' in unit_tag else unit_tag
+
+                set_clauses = ['[HWRowsCalc] = ?']
+                params = [hw_rows]
+                for column_name in additional_hw_columns:
+                    set_clauses.append(f'[{column_name}] = ?')
+                    params.append(hw_rows)
+
+                update_query = f"UPDATE tblSchedule SET {', '.join(set_clauses)} WHERE [Tag] = ?"
+                params.append(clean_tag)
+                cursor.execute(update_query, params)
+
+                if cursor.rowcount > 0:
+                    updated_count += 1
+                    print(f"Updated HW Rows for {clean_tag}: {hw_rows}")
+                else:
+                    errors.append(f"No record found for tag: {clean_tag}")
+                    print(f"No record found for tag: {clean_tag}")
+
+            except Exception as e:
+                error_msg = f"Error updating {unit_tag}: {str(e)}"
+                errors.append(error_msg)
+                print(error_msg)
+
+        conn.commit()
+        conn.close()
+
+        result = {
+            'success': True,
+            'updated_count': updated_count,
+            'backup_file': os.path.basename(backup_path),
+            'target_file': os.path.basename(target_file),
+            'target_path': target_file
+        }
+
+        if errors:
+            result['warnings'] = errors
+
+        return jsonify(result)
+
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': f'Failed to save HW Rows: {str(e)}'
+        }), 500
+
+
 @app.route('/get_updated_tw2_data', methods=['GET'])
 def get_updated_tw2_data():
     """Get updated TW2 data for display"""
@@ -1186,13 +1426,19 @@ def compare_performance():
         if not session.get('excel_data'):
             return jsonify({'success': False, 'error': 'Excel data not loaded'}), 400
 
-        if not session.get('updated_tw2_data'):
-            return jsonify({'success': False, 'error': 'Updated TW2 data not loaded'}), 400
+        reload_info = reload_tw2_data_from_disk()
+        if not reload_info.get('success'):
+            status_code = 404 if reload_info.get('code') == 404 else 500
+            return jsonify({'success': False, 'error': 'Unable to reload TW2 data: {}'.format(reload_info.get('error'))}), status_code
+
+        updated_tw2_data = session.get('updated_tw2_data')
+        if not updated_tw2_data:
+            return jsonify({'success': False, 'error': 'Updated TW2 data not loaded'}), 500
 
         # Perform comparison
         result = compare_performance_data(
             session['excel_data'],
-            session['updated_tw2_data'],
+            updated_tw2_data,
             mbh_lat_lower_margin=mbh_lat_lower_margin,
             mbh_lat_upper_margin=mbh_lat_upper_margin,
             wpd_threshold=wpd_threshold,
@@ -1204,7 +1450,11 @@ def compare_performance():
                 'success': True,
                 'data': {
                     'results': result['results'],
-                    'summary': result['summary']
+                    'summary': result['summary'],
+                    'tw2_path': reload_info.get('path'),
+                    'tw2_source': reload_info.get('source'),
+                    'tw2_records': reload_info.get('row_count'),
+                    'tw2_column_count': reload_info.get('column_count')
                 }
             })
         else:
@@ -1362,142 +1612,34 @@ def refresh_and_compare():
         logger.info("REFRESH: ===== STARTING REFRESH AND COMPARE =====")
         logger.info(f"REFRESH: Session keys available: {list(session.keys())}")
         logger.info(f"REFRESH: Session ID from request: {request.cookies.get('session', 'NO SESSION COOKIE')}")
-        
+
         data = request.json or {}
         mbh_lat_lower_margin = float(data.get('mbh_lat_lower_margin', 15))
         mbh_lat_upper_margin = float(data.get('mbh_lat_upper_margin', 25))
         wpd_threshold = float(data.get('wpd_threshold', 5))
         apd_threshold = float(data.get('apd_threshold', 0.25))
-        
-        logger.info(f"REFRESH: Configuration - Lower: {mbh_lat_lower_margin}%, Upper: {mbh_lat_upper_margin}%")
-        
-        # Check if we have stored TW2 file paths
-        original_tw2_path = session.get('original_tw2_path')
-        updated_tw2_path = session.get('updated_tw2_path')
 
-        # Allow request to override/set original path for this refresh
         request_original_path = _sanitize_path(data.get('original_path')) if data.get('original_path') else None
-        if request_original_path:
-            print(f"REFRESH: Original path provided in request: {request_original_path}")
-            if os.path.exists(request_original_path):
-                original_tw2_path = request_original_path
-                session['original_tw2_path'] = request_original_path
-                print(f"REFRESH: [OK] Using and storing request original path in session")
-            else:
-                print(f"REFRESH: [WARNING] Request original path not accessible: {request_original_path}")
-        
-        logger.info(f"REFRESH: Original TW2 path from session: {original_tw2_path}")
-        logger.info(f"REFRESH: Local TW2 path from session: {updated_tw2_path}")
-        
-        if not updated_tw2_path:
-            logger.error("REFRESH: [ERROR] NO TW2 PATH FOUND IN SESSION")
-            logger.info(f"REFRESH: Available session data keys: {list(session.keys())}")
-            for key in session.keys():
-                if 'tw2' in key.lower():
-                    logger.info(f"REFRESH: Found TW2-related key: {key} = {type(session[key])}")
-            
-            return jsonify({
-                'success': False,
-                'error': 'No TW2 file path stored. Please upload an updated TW2 file first.',
-                'data': {
-                    'debug': {
-                        'session_keys': list(session.keys()),
-                        'has_updated_tw2_data': 'updated_tw2_data' in session,
-                        'has_updated_tw2_path': 'updated_tw2_path' in session,
-                        'session_debug_url': '/debug_session',
-                        'session_cookie_present': 'session' in request.cookies
-                    }
-                }
-            }), 400
-        
-        # Determine which path to use - prioritize original path if available and accessible
-        tw2_file_path = None
-        path_source = None
-        
-        if original_tw2_path and os.path.exists(original_tw2_path):
-            tw2_file_path = original_tw2_path
-            path_source = "original"
-            logger.info(f"REFRESH: [OK] Using original file path: {tw2_file_path}")
-            logger.info(f"REFRESH: [OK] File last modified: {os.path.getmtime(tw2_file_path)}")
-        elif original_tw2_path:
-            logger.warning(f"REFRESH: [WARNING] Original path specified but not accessible: {original_tw2_path}")
-            logger.warning("REFRESH: [WARNING] os.path.exists check failed")
-            logger.info("REFRESH: Falling back to local copy")
-            tw2_file_path = updated_tw2_path
-            path_source = "local"
-        else:
-            tw2_file_path = updated_tw2_path
-            path_source = "local"
-            logger.info("REFRESH: [INFO] No original path specified, using local copy")
-        
-        logger.info(f"REFRESH: Using TW2 file path ({path_source}): {tw2_file_path}")
-        logger.info(f"REFRESH: Absolute path: {os.path.abspath(tw2_file_path)}")
-        
-        # Check if selected file exists
-        if not os.path.exists(tw2_file_path):
-            logger.error(f"REFRESH: [ERROR] FILE NOT FOUND: {tw2_file_path}")
-            logger.info(f"REFRESH: Current working directory: {os.getcwd()}")
-            logger.info(f"REFRESH: Trying to list directory: {os.path.dirname(tw2_file_path)}")
-            try:
-                dir_contents = os.listdir(os.path.dirname(tw2_file_path))
-                logger.info(f"REFRESH: Directory contents: {dir_contents}")
-            except Exception as e:
-                logger.warning(f"REFRESH: Could not list directory: {e}")
-            
-            # Provide specific error message based on path source
-            if path_source == "original":
-                error_msg = f'Original TW2 file not found at {tw2_file_path}. File may have been moved or deleted.'
-                if updated_tw2_path and os.path.exists(updated_tw2_path):
-                    error_msg += f' Local copy is available at {updated_tw2_path}.'
-            else:
-                error_msg = f'TW2 file not found at {tw2_file_path}. File may have been moved or deleted.'
-            
-            return jsonify({'success': False, 'error': error_msg}), 404
-        
-        logger.info(f"REFRESH: [OK] File exists, proceeding to refresh data from: {tw2_file_path} ({path_source})")
-        
-        # Check mtime to avoid unnecessary re-reads
-        current_mtime = None
-        try:
-            current_mtime = os.path.getmtime(tw2_file_path)
-        except Exception:
-            current_mtime = None
+        preferred_paths = []
 
-        skipped_read = False
-        if (
-            session.get('tw2_last_path') == tw2_file_path and
-            session.get('tw2_last_mtime') == current_mtime and
-            session.get('updated_tw2_data')
-        ):
-            # File unchanged and data present; skip disk read
-            logger.info("REFRESH: File unchanged since last read; skipping re-read and using cached session data")
-            skipped_read = True
-            result = {
-                'success': True,
-                'data': session.get('updated_tw2_data'),
-                'columns': session.get('updated_tw2_columns', []),
-                'row_count': session.get('updated_tw2_records', 0)
-            }
-        else:
-            # Re-read the TW2 file
-            result = read_tw2_data_safe(tw2_file_path)
-        
-        if not result['success']:
-            return jsonify({'success': False, 'error': f'Failed to read updated TW2 file: {result["error"]}'}), 500
-        
-        # Update session data with fresh TW2 data (or cached)
-        session['updated_tw2_data'] = result['data']
-        session['updated_tw2_columns'] = result['columns']
-        session['updated_tw2_records'] = result['row_count']
-        # Track mtime and path for change detection
-        session['tw2_last_path'] = tw2_file_path
-        if current_mtime is not None:
-            session['tw2_last_mtime'] = current_mtime
-        # Keep the original filename from session
-        
-        logger.info(f"Successfully refreshed TW2 data: {result['row_count']} records, {len(result['columns'])} columns")
-        
-        # Check if Excel data is available for comparison
+        if request_original_path:
+            if os.path.exists(request_original_path):
+                session['original_tw2_path'] = request_original_path
+                preferred_paths.append(('original', request_original_path))
+                logger.info(f"REFRESH: [OK] Using request original path: {request_original_path}")
+            else:
+                logger.warning(f"REFRESH: [WARNING] Request original path not accessible: {request_original_path}")
+
+        reload_info = reload_tw2_data_from_disk(preferred_paths=preferred_paths)
+        if not reload_info.get('success'):
+            status_code = 404 if reload_info.get('code') == 404 else 500
+            logger.error(f"REFRESH: Unable to reload TW2 data: {reload_info.get('error')}")
+            return jsonify({'success': False, 'error': reload_info.get('error')}), status_code
+
+        path_source = reload_info.get('source')
+        tw2_path = reload_info.get('path')
+        logger.info(f"REFRESH: Reloaded TW2 data from {tw2_path} (source: {path_source})")
+
         if not session.get('excel_data'):
             return jsonify({
                 'success': True,
@@ -1506,11 +1648,13 @@ def refresh_and_compare():
                     'tw2_refreshed': True,
                     'comparison_available': False,
                     'path_source': path_source,
-                    'skipped_read': skipped_read
+                    'tw2_path': tw2_path,
+                    'tw2_records': reload_info.get('row_count'),
+                    'tw2_column_count': reload_info.get('column_count'),
+                    'skipped_read': False
                 }
             })
-        
-        # Automatically run the comparison with current configuration
+
         comparison_result = compare_performance_data(
             session['excel_data'],
             session['updated_tw2_data'],
@@ -1519,7 +1663,7 @@ def refresh_and_compare():
             wpd_threshold=wpd_threshold,
             apd_threshold=apd_threshold
         )
-        
+
         if comparison_result['success']:
             return jsonify({
                 'success': True,
@@ -1530,16 +1674,23 @@ def refresh_and_compare():
                     'results': comparison_result['results'],
                     'summary': comparison_result['summary'],
                     'path_source': path_source,
-                    'skipped_read': skipped_read
+                    'tw2_path': tw2_path,
+                    'tw2_records': reload_info.get('row_count'),
+                    'tw2_column_count': reload_info.get('column_count'),
+                    'skipped_read': False
                 }
             })
         else:
             return jsonify({
                 'success': False,
-                'error': f'TW2 data refreshed but comparison failed: {comparison_result["error"]}',
-                'data': { 'tw2_refreshed': True, 'path_source': path_source }
+                'error': 'TW2 data refreshed but comparison failed: {}'.format(comparison_result['error']),
+                'data': {
+                    'tw2_refreshed': True,
+                    'path_source': path_source,
+                    'tw2_path': tw2_path
+                }
             }), 500
-            
+
     except Exception as e:
         logger.exception(f"Error in refresh_and_compare: {str(e)}")
         return jsonify({'success': False, 'error': f'Error during refresh and compare: {str(e)}'}), 500

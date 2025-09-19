@@ -466,6 +466,7 @@
                     document.getElementById('results-section').style.display = 'block';
                     
                     showToast('Database updated successfully!', 'success');
+                    downloadMergedFile();
                     
                     if (data.errors && data.errors.length > 0) {
                         console.error('Update errors:', data.errors);
@@ -477,6 +478,16 @@
             .catch(error => {
                 showToast('Error: ' + error, 'error');
             });
+        }
+
+        function downloadMergedFile() {
+            const link = document.createElement('a');
+            link.href = '/download_merged_tw2';
+            link.download = '';
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+            showToast('Merged TW2 file download started', 'info');
         }
 
         // Reset mapping
@@ -510,8 +521,8 @@
             
             container.appendChild(toast);
             
-            // Auto remove after 5 seconds for success/info, keep errors longer
-            const timeout = type === 'error' ? 10000 : 5000;
+            // Auto remove after 2.5 seconds for success/info, 4 seconds for errors
+            const timeout = type === 'error' ? 4000 : 2500;
             setTimeout(() => {
                 if (document.getElementById(toastId)) {
                     document.getElementById(toastId).remove();
@@ -749,11 +760,28 @@
                 if (data.success) {
                     const payload = data.data || {};
                     displayComparisonResults(payload.results, payload.summary);
-                    if (payload.summary) {
-                        showToast(`Comparison completed: ${payload.summary.total} units analyzed`, 'success');
-                    } else {
-                        showToast('Comparison completed', 'success');
+
+                    const summary = payload.summary || {};
+                    const totalUnits = typeof summary.total !== 'undefined' ? summary.total : null;
+                    const baseMessage = totalUnits !== null
+                        ? `Comparison completed: ${totalUnits} units analyzed`
+                        : 'Comparison completed';
+
+                    let sourceLabel = '';
+                    if (payload.tw2_source === 'original') {
+                        sourceLabel = 'Original TW2 file';
+                    } else if (payload.tw2_source === 'local') {
+                        sourceLabel = 'Local TW2 copy';
+                    } else if (payload.tw2_source) {
+                        sourceLabel = payload.tw2_source;
                     }
+
+                    const pathDetails = payload.tw2_path
+                        ? `${sourceLabel ? sourceLabel + ': ' : ''}${payload.tw2_path}`
+                        : '';
+
+                    const finalMessage = pathDetails ? `${baseMessage} (${pathDetails})` : baseMessage;
+                    showToast(finalMessage, 'success');
                 } else {
                     showToast(`Comparison failed: ${data.error}`, 'error');
                 }
@@ -768,7 +796,140 @@
             });
         }
 
-        // Display comparison results
+        // Setup HW Rows editing functionality
+        function setupHWRowsEditing() {
+            const hwRowsSelects = document.querySelectorAll('.hw-rows-select');
+
+            hwRowsSelects.forEach(select => {
+                select.addEventListener('change', function() {
+                    const originalValue = this.getAttribute('data-original');
+                    const currentValue = this.value;
+
+                    if (currentValue !== originalValue) {
+                        this.style.backgroundColor = '#fff3cd';
+                        this.classList.add('hw-rows-modified');
+                    } else {
+                        this.style.backgroundColor = '';
+                        this.classList.remove('hw-rows-modified');
+                    }
+
+                    updateHWRowsSaveButtonState();
+                });
+            });
+
+            let buttonContainer = document.getElementById('hw-rows-buttons');
+            if (!buttonContainer) {
+                buttonContainer = document.createElement('div');
+                buttonContainer.id = 'hw-rows-buttons';
+                buttonContainer.className = 'mt-3 text-center';
+                buttonContainer.innerHTML = `
+                    <button id="save-hw-rows-btn" class="btn btn-success btn-sm me-2" onclick="saveHWRows()" disabled>
+                        <i class="bi bi-check-circle"></i> Save HW Rows Changes
+                    </button>
+                    <button id="reset-hw-rows-btn" class="btn btn-secondary btn-sm" onclick="resetHWRows()" disabled>
+                        <i class="bi bi-arrow-clockwise"></i> Reset Changes
+                    </button>
+                    <div id="hw-rows-status" class="text-muted mt-2" style="font-size: 0.875rem;"></div>
+                `;
+
+                const comparisonTable = document.getElementById('comparison-table');
+                if (comparisonTable && comparisonTable.parentNode) {
+                    comparisonTable.parentNode.insertBefore(buttonContainer, comparisonTable.nextSibling);
+                }
+            }
+
+            updateHWRowsSaveButtonState();
+        }
+
+        function updateHWRowsSaveButtonState() {
+            const modifiedSelects = document.querySelectorAll('.hw-rows-select.hw-rows-modified');
+            const saveBtn = document.getElementById('save-hw-rows-btn');
+            const resetBtn = document.getElementById('reset-hw-rows-btn');
+            const statusDiv = document.getElementById('hw-rows-status');
+
+            if (modifiedSelects.length > 0) {
+                if (saveBtn) saveBtn.disabled = false;
+                if (resetBtn) resetBtn.disabled = false;
+                if (statusDiv) statusDiv.textContent = `${modifiedSelects.length} unit${modifiedSelects.length === 1 ? '' : 's'} modified`;
+            } else {
+                if (saveBtn) saveBtn.disabled = true;
+                if (resetBtn) resetBtn.disabled = true;
+                if (statusDiv) statusDiv.textContent = '';
+            }
+        }
+        window.updateHWRowsSaveButtonState = updateHWRowsSaveButtonState;
+
+        function saveHWRows() {
+            const modifiedSelects = document.querySelectorAll('.hw-rows-select.hw-rows-modified');
+            if (modifiedSelects.length === 0) {
+                showToast('No changes to save', 'info');
+                return;
+            }
+
+            const edits = Array.from(modifiedSelects).map(select => ({
+                unit_tag: select.getAttribute('data-unit-tag'),
+                hw_rows: parseInt(select.value, 10),
+            }));
+
+            if (!confirm(`Save HW Rows changes for ${edits.length} unit${edits.length === 1 ? '' : 's'}?`)) {
+                return;
+            }
+
+            showToast('Saving HW Rows changes...', 'info');
+
+            const pathInput = document.getElementById('original-tw2-path');
+            const originalPath = pathInput ? sanitizeLocalPath(pathInput.value) : '';
+            const payload = { edits, original_path: originalPath || '' };
+
+            fetch('/save_hw_rows', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify(payload),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    const baseMessage = `Successfully updated ${data.updated_count} unit${data.updated_count === 1 ? '' : 's'}`;
+                    const targetPath = data.target_path || '';
+                    const successMessage = targetPath ? `${baseMessage}. Saved to: ${targetPath}` : baseMessage;
+                    showToast(successMessage, 'success');
+
+                    modifiedSelects.forEach(select => {
+                        select.setAttribute('data-original', select.value);
+                        select.style.backgroundColor = '';
+                        select.classList.remove('hw-rows-modified');
+                    });
+
+                    updateHWRowsSaveButtonState();
+                } else {
+                    showToast(`Error saving changes: ${data.error}`, 'error');
+                }
+            })
+            .catch(error => {
+                showToast(`Error saving changes: ${error.message}`, 'error');
+            });
+        }
+        window.saveHWRows = saveHWRows;
+
+        function resetHWRows() {
+            const modifiedSelects = document.querySelectorAll('.hw-rows-select.hw-rows-modified');
+            if (modifiedSelects.length === 0) return;
+
+            modifiedSelects.forEach(select => {
+                select.value = select.getAttribute('data-original');
+                select.style.backgroundColor = '';
+                select.classList.remove('hw-rows-modified');
+            });
+
+            updateHWRowsSaveButtonState();
+            showToast('Changes reset', 'info');
+        }
+        window.resetHWRows = resetHWRows;
+
+
+// Display comparison results
         function displayComparisonResults(results, summary) {
             console.log('DISPLAY: displayComparisonResults called with:', results?.length, 'results');
             console.log('DISPLAY: Summary:', summary);
@@ -795,6 +956,7 @@
                         <th>LAT Diff</th>
                         <th>WPD</th>
                         <th>APD</th>
+                        <th>HW Rows</th>
                     </tr>
                 </thead>
             `;
@@ -817,6 +979,19 @@
                         <td class="percentage-diff">${result.lat_diff}</td>
                         <td class="comparison-value">${formatNumber(result.tw2_wpd) || 'N/A'}</td>
                         <td class="comparison-value">${formatNumber(result.tw2_apd) || 'N/A'}</td>
+                        <td class="hw-rows-cell">
+                            ${result.status !== 'Not Found' ?
+                                `<select class="hw-rows-select"
+                                        data-unit-tag="${result.unit_tag}"
+                                        data-original="${result.tw2_hw_rows || 1}">
+                                    <option value="1" ${(result.tw2_hw_rows || 1) == 1 ? 'selected' : ''}>1</option>
+                                    <option value="2" ${(result.tw2_hw_rows || 1) == 2 ? 'selected' : ''}>2</option>
+                                    <option value="3" ${(result.tw2_hw_rows || 1) == 3 ? 'selected' : ''}>3</option>
+                                    <option value="4" ${(result.tw2_hw_rows || 1) == 4 ? 'selected' : ''}>4</option>
+                                </select>`
+                                : 'N/A'
+                            }
+                        </td>
                     </tr>
                 `;
             });
@@ -824,6 +999,8 @@
             
             tableContainer.innerHTML = headerHtml + bodyHtml;
             
+            setupHWRowsEditing();
+
             // Show results section
             document.getElementById('comparison-results').style.display = 'block';
             // Update summary badges if present
