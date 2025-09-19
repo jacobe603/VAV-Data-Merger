@@ -81,17 +81,17 @@
                                     <div class="row">
                                         <div class="col-md-4">
                                             <label for="data-start-row" class="form-label">Data starts at row:</label>
-                                            <input type="number" id="data-start-row" class="form-control form-control-sm" value="4" min="1" max="20">
+                                            <input type="number" id="data-start-row" class="form-control form-control-sm" value="2" min="1" max="20">
                                             <small class="text-muted">Row where actual data begins</small>
                                         </div>
                                         <div class="col-md-4">
                                             <label for="header-rows" class="form-label">Header rows:</label>
-                                            <input type="number" id="header-rows" class="form-control form-control-sm" value="2" min="1" max="5">
+                                            <input type="number" id="header-rows" class="form-control form-control-sm" value="1" min="1" max="5">
                                             <small class="text-muted">Number of header rows</small>
                                         </div>
                                         <div class="col-md-4">
                                             <div class="form-check mt-4">
-                                                <input class="form-check-input" type="checkbox" id="skip-title-row" checked>
+                                                <input class="form-check-input" type="checkbox" id="skip-title-row">
                                                 <label class="form-check-label" for="skip-title-row">
                                                     Skip title row
                                                 </label>
@@ -126,7 +126,7 @@
                         </div>
                         <div class="mt-3">
                             <label for="original-tw2-path" class="form-label">
-                                <small>Original File Path (optional - for remote refresh)</small>
+                                <small>Original File Path (required for HW Rows saving and remote refresh)</small>
                             </label>
                             <div class="input-group input-group-sm">
                                 <input type="text" id="original-tw2-path" class="form-control" 
@@ -319,7 +319,7 @@
         </div>
         
         <!-- Status Messages -->
-        <div id="status-messages" class="position-fixed bottom-0 end-0 p-3" style="z-index: 11">
+        <div id="status-messages" class="position-fixed top-0 end-0 p-3" style="z-index: 1050; margin-top: 20px;">
             <!-- Toast messages will appear here -->
         </div>
     </div>
@@ -672,3 +672,4 @@
     <script src="/static/app.js"></script>
 </body>
 </html>
+

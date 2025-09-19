@@ -270,6 +270,21 @@ def is_probably_header_value(value):
 
     return True
 
+
+
+def normalize_hw_rows_value(value):
+    try:
+        if value is None or value == '':
+            return None
+        if isinstance(value, (int, float)):
+            return int(value)
+        str_val = str(value).strip()
+        if not str_val:
+            return None
+        return int(float(str_val))
+    except Exception:
+        return None
+
 def combine_multi_row_headers(df, header_rows=2, title_row_offset=0):
     """Combine multi-row headers into single header row
     
@@ -656,7 +671,7 @@ def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=
             tw2_row = tw2_index.get(normalized_excel_tag) or tw2_index.get(unit_tag)
             if not tw2_row:
                 comparison_results.append({
-                    'unit_tag': f"{unit_tag} → {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
+                    'unit_tag': f"{unit_tag} \u001a {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
                     'status': 'Not Found',
                     'excel_mbh': excel_row.get('MBH', 'N/A'),
                     'tw2_mbh': 'N/A',
@@ -665,7 +680,9 @@ def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=
                     'tw2_lat': 'N/A',
                     'lat_diff': 'N/A',
                     'tw2_wpd': 'N/A',
-                    'tw2_apd': 'N/A'
+                    'tw2_apd': 'N/A',
+                    'tw2_hw_rows': None,
+                    'tw2_hw_rows_raw': None,
                 })
                 continue
             
@@ -677,6 +694,15 @@ def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=
             tw2_lat = tw2_row.get('HWLATCalc')
             tw2_wpd = tw2_row.get('HWPDCalc')
             tw2_apd = tw2_row.get('HWAPDCalc')
+
+            tw2_hw_raw = None
+            for hw_key in ('HWRowsCalc', 'HWRows', 'HWRow'):
+                candidate = tw2_row.get(hw_key)
+                if candidate not in (None, ''):
+                    tw2_hw_raw = candidate
+                    break
+            tw2_hw_rows = normalize_hw_rows_value(tw2_hw_raw)
+
             
             # Calculate differences and status
             mbh_diff = 'N/A'
@@ -738,7 +764,7 @@ def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=
                 status = 'Pass'
             
             comparison_results.append({
-                'unit_tag': f"{unit_tag} → {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
+                'unit_tag': f"{unit_tag} \u001a {normalized_excel_tag}" if normalized_excel_tag != unit_tag else unit_tag,
                 'status': status,
                 'status_details': ', '.join(status_flags) if status_flags else 'All within range',
                 'excel_mbh': excel_mbh,
@@ -748,7 +774,9 @@ def compare_performance_data(excel_data, updated_tw2_data, mbh_lat_lower_margin=
                 'tw2_lat': tw2_lat,
                 'lat_diff': f'{lat_diff:.1f}%' if isinstance(lat_diff, (int, float)) else lat_diff,
                 'tw2_wpd': tw2_wpd,
-                'tw2_apd': tw2_apd
+                'tw2_apd': tw2_apd,
+                'tw2_hw_rows': tw2_hw_rows,
+                'tw2_hw_rows_raw': tw2_hw_raw if tw2_hw_raw not in (None, '') else None
             })
         
         return {
@@ -1290,7 +1318,10 @@ def save_hw_rows():
             if sanitized_path:
                 session['original_tw2_path'] = sanitized_path
             else:
-                session.pop('original_tw2_path', None)
+                return jsonify({
+                    'success': False,
+                    'error': 'Original TW2 file path is required before saving HW Rows.'
+                }), 400
 
         if not edits:
             return jsonify({'success': False, 'error': 'No edits provided'}), 400
@@ -1301,21 +1332,19 @@ def save_hw_rows():
                 return jsonify({'success': False, 'error': f'Invalid HW Rows value: {hw_rows}. Must be 1, 2, 3, or 4'}), 400
 
         original_tw2_path = session.get('original_tw2_path')
-        updated_tw2_path = session.get('updated_tw2_path')
-        tw2_file_path = session.get('tw2_file')
-
-        target_file = None
-        if original_tw2_path and os.path.exists(original_tw2_path):
-            target_file = original_tw2_path
-        elif updated_tw2_path and os.path.exists(updated_tw2_path):
-            target_file = updated_tw2_path
-        elif tw2_file_path and os.path.exists(tw2_file_path):
-            target_file = tw2_file_path
-        else:
+        if not original_tw2_path:
             return jsonify({
                 'success': False,
-                'error': 'No accessible TW2 file found. Please ensure the Original File Path is set and accessible.'
+                'error': 'Original TW2 file path is required before saving HW Rows.'
             }), 400
+
+        if not os.path.exists(original_tw2_path):
+            return jsonify({
+                'success': False,
+                'error': 'Original TW2 file path is not accessible. Please validate the path and try again.'
+            }), 400
+
+        target_file = original_tw2_path
 
         backup_path = target_file + '.backup_hw_rows_' + datetime.now().strftime('%Y%m%d_%H%M%S')
         shutil.copy2(target_file, backup_path)
@@ -1323,16 +1352,24 @@ def save_hw_rows():
         conn = get_mdb_connection(target_file)
         cursor = conn.cursor()
 
-        additional_hw_columns = []
+        hw_rows_columns = []
         try:
             cursor.execute("SELECT * FROM tblSchedule WHERE 1=0")
             column_lookup = {(desc[0] or '').lower(): desc[0] for desc in (cursor.description or [])}
-            for key in ('hwrows', 'hwrow'):
-                column_name = column_lookup.get(key)
-                if column_name and column_name.lower() != 'hwrowscalc' and column_name not in additional_hw_columns:
-                    additional_hw_columns.append(column_name)
+
+            hwrows_calc_column = column_lookup.get('hwrowscalc') or 'HWRowsCalc'
+            hw_rows_columns.append(hwrows_calc_column)
+
+            hwrows_column = column_lookup.get('hwrows')
+            if hwrows_column and hwrows_column not in hw_rows_columns:
+                hw_rows_columns.append(hwrows_column)
+
+            hwrow_column = column_lookup.get('hwrow')
+            if hwrow_column and hwrow_column not in hw_rows_columns:
+                hw_rows_columns.append(hwrow_column)
         except Exception as e:
             print(f"HW ROWS: Unable to inspect columns: {e}")
+            hw_rows_columns = hw_rows_columns or ['HWRowsCalc']
 
         updated_count = 0
         errors = []
@@ -1341,14 +1378,17 @@ def save_hw_rows():
             unit_tag = edit.get('unit_tag')
             hw_rows = edit.get('hw_rows')
 
+            if unit_tag in (None, ''):
+                errors.append('Missing unit tag in edit payload')
+                continue
+
             try:
                 clean_tag = unit_tag.split('  ')[0] if '  ' in unit_tag else unit_tag
 
-                set_clauses = ['[HWRowsCalc] = ?']
-                params = [hw_rows]
-                for column_name in additional_hw_columns:
-                    set_clauses.append(f'[{column_name}] = ?')
-                    params.append(hw_rows)
+                hw_rows_value = int(hw_rows)
+
+                set_clauses = [f'[{column}] = ?' for column in hw_rows_columns]
+                params = [hw_rows_value] * len(hw_rows_columns)
 
                 update_query = f"UPDATE tblSchedule SET {', '.join(set_clauses)} WHERE [Tag] = ?"
                 params.append(clean_tag)
@@ -1356,7 +1396,7 @@ def save_hw_rows():
 
                 if cursor.rowcount > 0:
                     updated_count += 1
-                    print(f"Updated HW Rows for {clean_tag}: {hw_rows}")
+                    print(f"Updated HW Rows for {clean_tag}: {hw_rows_value}")
                 else:
                     errors.append(f"No record found for tag: {clean_tag}")
                     print(f"No record found for tag: {clean_tag}")

@@ -838,6 +838,13 @@
                 }
             }
 
+            const pathInput = document.getElementById('original-tw2-path');
+            if (pathInput && !pathInput.dataset.hwRowsListenerAttached) {
+                pathInput.addEventListener('input', updateHWRowsSaveButtonState);
+                pathInput.addEventListener('change', updateHWRowsSaveButtonState);
+                pathInput.dataset.hwRowsListenerAttached = 'true';
+            }
+
             updateHWRowsSaveButtonState();
         }
 
@@ -846,15 +853,23 @@
             const saveBtn = document.getElementById('save-hw-rows-btn');
             const resetBtn = document.getElementById('reset-hw-rows-btn');
             const statusDiv = document.getElementById('hw-rows-status');
+            const pathInput = document.getElementById('original-tw2-path');
+            const originalPath = pathInput ? sanitizeLocalPath(pathInput.value) : '';
+            const hasPath = !!originalPath;
+            const hasEdits = modifiedSelects.length > 0;
+            const canSave = hasEdits && hasPath;
 
-            if (modifiedSelects.length > 0) {
-                if (saveBtn) saveBtn.disabled = false;
-                if (resetBtn) resetBtn.disabled = false;
-                if (statusDiv) statusDiv.textContent = `${modifiedSelects.length} unit${modifiedSelects.length === 1 ? '' : 's'} modified`;
-            } else {
-                if (saveBtn) saveBtn.disabled = true;
-                if (resetBtn) resetBtn.disabled = true;
-                if (statusDiv) statusDiv.textContent = '';
+            if (saveBtn) saveBtn.disabled = !canSave;
+            if (resetBtn) resetBtn.disabled = !hasEdits;
+
+            if (statusDiv) {
+                if (hasEdits && !hasPath) {
+                    statusDiv.textContent = 'Enter the original TW2 file path to enable saving.';
+                } else if (hasEdits) {
+                    statusDiv.textContent = `${modifiedSelects.length} unit${modifiedSelects.length === 1 ? '' : 's'} modified`;
+                } else {
+                    statusDiv.textContent = '';
+                }
             }
         }
         window.updateHWRowsSaveButtonState = updateHWRowsSaveButtonState;
@@ -863,6 +878,18 @@
             const modifiedSelects = document.querySelectorAll('.hw-rows-select.hw-rows-modified');
             if (modifiedSelects.length === 0) {
                 showToast('No changes to save', 'info');
+                return;
+            }
+
+            const pathInput = document.getElementById('original-tw2-path');
+            const originalPath = pathInput ? sanitizeLocalPath(pathInput.value) : '';
+
+            if (!originalPath) {
+                showToast('Enter the original TW2 file path before saving HW Rows.', 'error');
+                if (pathInput) {
+                    pathInput.focus();
+                }
+                updateHWRowsSaveButtonState();
                 return;
             }
 
@@ -877,9 +904,7 @@
 
             showToast('Saving HW Rows changes...', 'info');
 
-            const pathInput = document.getElementById('original-tw2-path');
-            const originalPath = pathInput ? sanitizeLocalPath(pathInput.value) : '';
-            const payload = { edits, original_path: originalPath || '' };
+            const payload = { edits, original_path: originalPath };
 
             fetch('/save_hw_rows', {
                 method: 'POST',
