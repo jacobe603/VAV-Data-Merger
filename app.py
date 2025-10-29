@@ -1905,9 +1905,9 @@ def generate_schedule_data_excel(tw2_data, project_name):
             # Apply 8pt Arial font to note content
             ws[f'E{current_row}'].font = Font(name='Arial', size=8)
 
-            # Merge notes content cells
+            # Merge notes content cells through column V for more room
             try:
-                ws.merge_cells(f'E{current_row}:R{current_row}')
+                ws.merge_cells(f'E{current_row}:V{current_row}')
             except:
                 pass
             current_row += 1
