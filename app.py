@@ -1809,44 +1809,45 @@ def generate_schedule_data_excel(tw2_data, project_name):
             # Populate data columns
             try:
                 safe_set_cell(f'A{row_num}', record.get('Tag', ''))
-                safe_set_cell(f'H{row_num}', record.get('UnitSize', ''))
-                safe_set_cell(f'I{row_num}', record.get('OutletSize', ''))
-                safe_set_cell(f'J{row_num}', record.get('CFMDesign', ''))
-                safe_set_cell(f'K{row_num}', record.get('CFMMinPrime', ''))
-                safe_set_cell(f'L{row_num}', record.get('SPInlet', ''))
-                safe_set_cell(f'M{row_num}', record.get('SPDownstream', ''))
-                safe_set_cell(f'N{row_num}', record.get('SPMin', ''))
-                safe_set_cell(f'O{row_num}', record.get('RadNCRoom', ''))
-                safe_set_cell(f'P{row_num}', record.get('DisNCRoom', ''))
-                safe_set_cell(f'Q{row_num}', record.get('HWCFM', ''))
+                safe_set_cell(f'F{row_num}', 'DESV')  # Model - always DESV
+                safe_set_cell(f'G{row_num}', record.get('UnitSize', ''))
+                safe_set_cell(f'H{row_num}', record.get('OutletSize', ''))
+                safe_set_cell(f'I{row_num}', record.get('CFMDesign', ''))
+                safe_set_cell(f'J{row_num}', record.get('CFMMinPrime', ''))
+                safe_set_cell(f'K{row_num}', record.get('SPInlet', ''))
+                safe_set_cell(f'L{row_num}', record.get('SPDownstream', ''))
+                safe_set_cell(f'M{row_num}', record.get('SPMin', ''))
+                safe_set_cell(f'N{row_num}', record.get('RadNCRoom', ''))
+                safe_set_cell(f'O{row_num}', record.get('DisNCRoom', ''))
+                safe_set_cell(f'P{row_num}', record.get('HWCFM', ''))
 
                 if record.get('HWMBHCalc'):
-                    safe_set_cell(f'R{row_num}', round(float(record.get('HWMBHCalc', 0))))
+                    safe_set_cell(f'Q{row_num}', round(float(record.get('HWMBHCalc', 0))))
 
-                safe_set_cell(f'S{row_num}', record.get('HWEATCalc', ''))
-                safe_set_cell(f'V{row_num}', record.get('HWEWT', ''))
+                safe_set_cell(f'R{row_num}', record.get('HWEATCalc', ''))
+                safe_set_cell(f'U{row_num}', record.get('HWEWT', ''))
 
                 if record.get('HWLATCalc'):
-                    safe_set_cell(f'W{row_num}', round(float(record.get('HWLATCalc', 0)), 1))
+                    safe_set_cell(f'V{row_num}', round(float(record.get('HWLATCalc', 0)), 1))
 
                 if record.get('HWAPDCalc'):
-                    safe_set_cell(f'X{row_num}', round(float(record.get('HWAPDCalc', 0)), 2))
+                    safe_set_cell(f'W{row_num}', round(float(record.get('HWAPDCalc', 0)), 2))
 
-                safe_set_cell(f'Y{row_num}', record.get('HWGPMCalc', ''))
+                safe_set_cell(f'X{row_num}', record.get('HWGPMCalc', ''))
 
                 if record.get('HWLWTCalc'):
-                    safe_set_cell(f'Z{row_num}', round(float(record.get('HWLWTCalc', 0)), 1))
+                    safe_set_cell(f'Y{row_num}', round(float(record.get('HWLWTCalc', 0)), 1))
 
                 if record.get('HWPDCalc'):
-                    safe_set_cell(f'AA{row_num}', round(float(record.get('HWPDCalc', 0)), 2))
+                    safe_set_cell(f'Z{row_num}', round(float(record.get('HWPDCalc', 0)), 2))
 
                 hw_rows = record.get('HWRowsCalc') or record.get('HWRows', '')
                 control_hand = record.get('ControlHand', '')
                 if hw_rows:
-                    safe_set_cell(f'AB{row_num}', f"{hw_rows}-{control_hand}")
+                    safe_set_cell(f'AA{row_num}', f"{hw_rows}-{control_hand}")
 
-                safe_set_cell(f'AC{row_num}', record.get('HWFPI', ''))
-                safe_set_cell(f'AD{row_num}', record.get('ControlHand', ''))
+                safe_set_cell(f'AB{row_num}', record.get('HWFPI', ''))
+                safe_set_cell(f'AC{row_num}', record.get('ControlHand', ''))
 
                 # Re-merge cells for this data row to match original template structure
                 ws.merge_cells(f'A{row_num}:B{row_num}')
