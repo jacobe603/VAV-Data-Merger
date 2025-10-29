@@ -1,5 +1,27 @@
 uploads/
+sessions/
 *.pyc
 __pycache__/
 .env
 *.backup_*
+
+# Virtual environments
+.venv/
+venv/
+ENV/
+env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo
+*~
+
+# Python
+*.egg-info/
+.pytest_cache/
+dist/
+build/
+*.egg

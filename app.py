@@ -374,6 +374,7 @@ def map_excel_headers_to_standard(excel_headers):
         'LAT': 'LAT',
         
         # Other values
+        'MBH': 'MBH',
         'TOTAL MBH': 'Total_MBH',
         'TOTAL_MBH': 'Total_MBH',
         'EWT': 'EWT',
@@ -381,7 +382,10 @@ def map_excel_headers_to_standard(excel_headers):
         'GPM': 'GPM',
         'MAX WPD': 'Max_WPD',
         'MAX_WPD': 'Max_WPD',
-        'NOTES': 'Notes'
+        'WPD': 'WPD',
+        'APD': 'APD',
+        'NOTES': 'Notes',
+        'TAG': 'Unit_No'
     }
     
     # Map headers with smart CFM handling
