@@ -1887,9 +1887,12 @@ def generate_schedule_data_excel(tw2_data, project_name):
 
         current_row = notes_start_row
         for label, note in notes:
+            # Set row height to match other note rows
+            ws.row_dimensions[current_row].height = 15
+
             if label:
                 safe_set_cell(f'B{current_row}', label)
-                ws[f'B{current_row}'].font = Font(bold=True)
+                ws[f'B{current_row}'].font = Font(name='Arial', size=8, bold=True)
                 safe_set_cell(f'E{current_row}', note)
                 # Merge notes label cells
                 try:
@@ -1898,6 +1901,10 @@ def generate_schedule_data_excel(tw2_data, project_name):
                     pass
             else:
                 safe_set_cell(f'E{current_row}', note)
+
+            # Apply 8pt Arial font to note content
+            ws[f'E{current_row}'].font = Font(name='Arial', size=8)
+
             # Merge notes content cells
             try:
                 ws.merge_cells(f'E{current_row}:R{current_row}')
