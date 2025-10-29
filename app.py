@@ -207,6 +207,32 @@ def read_tw2_data_safe(file_path):
             'error': str(e).encode('ascii', 'ignore').decode('ascii')
         }
 
+def get_project_name_from_tw2(file_path):
+    """Query tblProjectInfo in TW2 database to get project name"""
+    try:
+        if not file_path or not os.path.exists(file_path):
+            return None
+
+        conn = get_mdb_connection(file_path)
+        cursor = conn.cursor()
+
+        # Query the project name from tblProjectInfo
+        cursor.execute("SELECT [Name] FROM [tblProjectInfo]")
+        result = cursor.fetchone()
+
+        conn.close()
+
+        if result:
+            project_name = result[0]
+            if project_name:
+                return str(project_name).strip()
+
+        return None
+
+    except Exception as e:
+        print(f"Error querying project name from TW2: {str(e)}")
+        return None
+
 def clean_size_value(value):
     """Remove inch marks (") from size values and add zero-padding for numeric sizes"""
     if value is None or pd.isna(value):
@@ -1930,16 +1956,26 @@ def export_schedule_data():
         if not updated_tw2_data:
             return jsonify({'success': False, 'error': 'TW2 data not loaded'}), 400
 
-        tw2_path = session.get('original_tw2_path') or session.get('tw2_file_path', '')
-        project_name = 'VAV Schedule Data'
+        # Get TW2 file path from session (check all possible locations)
+        tw2_path = session.get('original_tw2_path') or session.get('updated_tw2_path') or session.get('tw2_file') or ''
+        project_name = None
 
+        # Try to get project name from TW2 database first
         if tw2_path:
+            project_name = get_project_name_from_tw2(tw2_path)
+
+        # Fallback to filename parsing if database query didn't work
+        if not project_name and tw2_path:
             import os
             filename = os.path.splitext(os.path.basename(tw2_path))[0]
             if ' - ' in filename:
                 project_name = filename.split(' - ')[0].strip()
             else:
                 project_name = filename
+
+        # Final fallback to default name
+        if not project_name:
+            project_name = 'VAV Schedule Data'
 
         excel_file = generate_schedule_data_excel(updated_tw2_data, project_name)
 
