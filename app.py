@@ -1753,24 +1753,30 @@ def generate_schedule_data_excel(tw2_data, project_name):
         wb = load_workbook(template_path)
         ws = wb.active
 
+        # IMPORTANT: Unmerge all cells that will be affected by row insertions and notes population
+        # This must be done BEFORE we insert any rows
+        merged_to_unmerge = []
+        for merged_range in list(ws.merged_cells.ranges):
+            # Unmerge anything in rows 6 and below (will be shifted by row insertions)
+            # and anything in rows 14 and below (will be used for notes)
+            if merged_range.min_row >= 6 or (merged_range.min_row >= 1 and merged_range.max_row >= 6):
+                merged_to_unmerge.append(str(merged_range))
+
+        for merged_range_str in merged_to_unmerge:
+            try:
+                ws.unmerge_cells(merged_range_str)
+            except:
+                pass
+
         # Update project name in row 2
         ws['A2'] = project_name
 
         # Get template row formatting (row 5)
         template_row = 5
 
-        # Helper function to safely set cell value (handles merged cells)
+        # Helper function to safely set cell value
         def safe_set_cell(cell_ref, value):
-            cell = ws[cell_ref]
-            if cell.coordinate in ws.merged_cells:
-                # Find the top-left cell of the merged range
-                for merged_range in ws.merged_cells.ranges:
-                    if cell.coordinate in merged_range:
-                        top_left = merged_range.start_cell
-                        top_left.value = value
-                        return
-            else:
-                cell.value = value
+            ws[cell_ref].value = value
 
         # Insert data rows starting at row 5
         for i, record in enumerate(tw2_data):
@@ -1788,10 +1794,6 @@ def generate_schedule_data_excel(tw2_data, project_name):
                     source_cell = ws.cell(row=template_row, column=col_num)
                     target_cell = ws.cell(row=row_num, column=col_num)
 
-                    # Skip if source is a merged cell
-                    if source_cell.coordinate in ws.merged_cells:
-                        continue
-
                     # Copy formatting
                     if source_cell.font:
                         target_cell.font = copy(source_cell.font)
@@ -1804,7 +1806,7 @@ def generate_schedule_data_excel(tw2_data, project_name):
                     if source_cell.number_format:
                         target_cell.number_format = copy(source_cell.number_format)
 
-            # Populate data columns using safe setter
+            # Populate data columns
             try:
                 safe_set_cell(f'A{row_num}', record.get('Tag', ''))
                 safe_set_cell(f'H{row_num}', record.get('UnitSize', ''))
@@ -1851,7 +1853,7 @@ def generate_schedule_data_excel(tw2_data, project_name):
                 continue
 
         # Place notes section after data
-        notes_start_row = max(5 + len(tw2_data) + 2, 16)
+        notes_start_row = 5 + len(tw2_data) + 2
 
         # Get fluid type info from first record
         fluid_type = tw2_data[0].get('FluidType', '') if tw2_data else ''
@@ -1865,18 +1867,6 @@ def generate_schedule_data_excel(tw2_data, project_name):
             fluid_description = "100% Water"
         else:
             fluid_description = f"{pct_glycol}% {fluid_type}"
-
-        # Unmerge any merged cells in the notes area before populating
-        merged_ranges_to_unmerge = []
-        for merged_range in ws.merged_cells.ranges:
-            if merged_range.min_row >= notes_start_row - 2:
-                merged_ranges_to_unmerge.append(str(merged_range))
-
-        for merged_range_str in merged_ranges_to_unmerge:
-            try:
-                ws.unmerge_cells(merged_range_str)
-            except:
-                pass
 
         # Notes content
         notes = [
@@ -1893,13 +1883,7 @@ def generate_schedule_data_excel(tw2_data, project_name):
         for label, note in notes:
             if label:
                 safe_set_cell(f'B{current_row}', label)
-                b_cell = ws[f'B{current_row}']
-                if b_cell.coordinate in ws.merged_cells:
-                    for merged_range in ws.merged_cells.ranges:
-                        if b_cell.coordinate in merged_range:
-                            b_cell = merged_range.start_cell
-                            break
-                b_cell.font = Font(bold=True)
+                ws[f'B{current_row}'].font = Font(bold=True)
                 safe_set_cell(f'E{current_row}', note)
             else:
                 safe_set_cell(f'E{current_row}', note)
