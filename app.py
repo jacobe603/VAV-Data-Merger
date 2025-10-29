@@ -1739,5 +1739,213 @@ def refresh_and_compare():
         logger.exception(f"Error in refresh_and_compare: {str(e)}")
         return jsonify({'success': False, 'error': f'Error during refresh and compare: {str(e)}'}), 500
 
+
+def generate_schedule_data_excel(tw2_data, project_name):
+    """Generate Schedule Data Excel report from TW2 data"""
+    try:
+        from openpyxl import Workbook
+        from openpyxl.styles import Alignment, Font
+        from openpyxl.utils import get_column_letter
+        from io import BytesIO
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = 'MasterLandscapeReport'
+
+        # Set column widths
+        column_widths = [15, 10, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
+        for i, width in enumerate(column_widths, 1):
+            ws.column_dimensions[get_column_letter(i)].width = width
+
+        # Row 1: Title
+        ws['A1'] = 'Single Duct Terminal Unit Schedule'
+        ws['A1'].font = Font(bold=True, size=12)
+        ws.merge_cells('A1:AD1')
+
+        # Row 2: Project name
+        ws['A2'] = project_name
+        ws['A2'].font = Font(bold=True, size=11)
+
+        # Row 3: Group headers
+        headers_group = {
+            'A3': 'Tag',
+            'C3': 'AHU',
+            'F3': 'Room',
+            'G3': 'Model',
+            'H3': 'Size',
+            'J3': 'CFM',
+            'L3': 'Static Pressure',
+            'O3': 'NC Levels',
+            'Q3': 'Hot Water Heat Coil',
+            'AD3': 'Unit Information'
+        }
+        for cell, value in headers_group.items():
+            ws[cell] = value
+            ws[cell].font = Font(bold=True)
+
+        # Row 4: Column headers
+        headers_row4 = {
+            'A4': 'Tag',
+            'C4': 'Tag',
+            'H4': 'Unit',
+            'I4': 'Outlet',
+            'J4': 'Max',
+            'K4': 'Min',
+            'L4': 'Inlet',
+            'M4': 'Down',
+            'N4': 'Min',
+            'O4': 'Rad',
+            'P4': 'Dis',
+            'Q4': 'CFM',
+            'R4': 'MBH',
+            'S4': 'EAT',
+            'V4': 'EWT',
+            'W4': 'LAT',
+            'X4': 'APd',
+            'Y4': 'GPM',
+            'Z4': 'LWT',
+            'AA4': 'WPd',
+            'AB4': 'Rows',
+            'AC4': 'FPI',
+            'AD4': 'Hand'
+        }
+        for cell, value in headers_row4.items():
+            ws[cell] = value
+            ws[cell].font = Font(bold=True)
+            ws[cell].alignment = Alignment(horizontal='center', vertical='center')
+
+        # Data rows
+        data_row = 5
+        for record in tw2_data:
+            try:
+                ws[f'A{data_row}'] = record.get('Tag', '')
+                ws[f'H{data_row}'] = record.get('UnitSize', '')
+                ws[f'I{data_row}'] = record.get('OutletSize', '')
+                ws[f'J{data_row}'] = record.get('CFMDesign', '')
+                ws[f'K{data_row}'] = record.get('CFMMinPrime', '')
+                ws[f'L{data_row}'] = record.get('SPInlet', '')
+                ws[f'M{data_row}'] = record.get('SPDownstream', '')
+                ws[f'N{data_row}'] = record.get('SPMin', '')
+                ws[f'O{data_row}'] = record.get('RadNCRoom', '')
+                ws[f'P{data_row}'] = record.get('DisNCRoom', '')
+                ws[f'Q{data_row}'] = record.get('HWCFM', '')
+
+                if record.get('HWMBHCalc'):
+                    ws[f'R{data_row}'] = round(float(record.get('HWMBHCalc', 0)))
+
+                ws[f'S{data_row}'] = record.get('HWEATCalc', '')
+                ws[f'V{data_row}'] = record.get('HWEWT', '')
+
+                if record.get('HWLATCalc'):
+                    ws[f'W{data_row}'] = round(float(record.get('HWLATCalc', 0)), 1)
+
+                if record.get('HWAPDCalc'):
+                    ws[f'X{data_row}'] = round(float(record.get('HWAPDCalc', 0)), 2)
+
+                ws[f'Y{data_row}'] = record.get('HWGPMCalc', '')
+
+                if record.get('HWLWTCalc'):
+                    ws[f'Z{data_row}'] = round(float(record.get('HWLWTCalc', 0)), 1)
+
+                if record.get('HWPDCalc'):
+                    ws[f'AA{data_row}'] = round(float(record.get('HWPDCalc', 0)), 2)
+
+                hw_rows = record.get('HWRowsCalc') or record.get('HWRows', '')
+                control_hand = record.get('ControlHand', '')
+                if hw_rows:
+                    ws[f'AB{data_row}'] = f"{hw_rows}-{control_hand}"
+
+                ws[f'AC{data_row}'] = record.get('HWFPI', '')
+                ws[f'AD{data_row}'] = record.get('ControlHand', '')
+
+                data_row += 1
+            except Exception as e:
+                logger.error(f"Error processing row for tag {record.get('Tag', 'Unknown')}: {str(e)}")
+                data_row += 1
+                continue
+
+        # Add notes section
+        notes_start_row = data_row + 2
+
+        # Get fluid type info from first record
+        fluid_type = tw2_data[0].get('FluidType', '') if tw2_data else ''
+        pct_glycol = tw2_data[0].get('PctGlycol', 40) if tw2_data else 40
+
+        if fluid_type == 'EG':
+            fluid_description = f"{pct_glycol}% Ethylene Glycol"
+        elif fluid_type == 'PG':
+            fluid_description = f"{pct_glycol}% Propylene Glycol"
+        elif fluid_type == 'Water' or fluid_type == '':
+            fluid_description = "100% Water"
+        else:
+            fluid_description = f"{pct_glycol}% {fluid_type}"
+
+        # Notes content
+        notes = [
+            ("Notes:", "1. Selections are based on Titus as Manufacturer."),
+            (None, "2. All performance based on tests conducted in accordance with ASHRAE 130-2008 and AHRI 880-2011."),
+            (None, "3. All NC levels determined using AHRI 885-2008 Appendix E."),
+            (None, "4. All airflow, pressure losses and heating performance values have been corrected for altitude."),
+            (None, "5. Units of measure: dimensions (in), airflow (cfm), water flow (gpm), air pressure (in wg), water head losses (ft) and temperatures (degF)."),
+            (None, "6. Water pressure drop (WPd) units is in ft. water."),
+            (None, f"7. Hot water performance based on {fluid_description}.")
+        ]
+
+        current_row = notes_start_row
+        for label, note in notes:
+            if label:
+                ws[f'B{current_row}'] = label
+                ws[f'B{current_row}'].font = Font(bold=True)
+                ws[f'E{current_row}'] = note
+            else:
+                ws[f'E{current_row}'] = note
+            current_row += 1
+
+        output = BytesIO()
+        wb.save(output)
+        output.seek(0)
+        return output
+
+    except Exception as e:
+        logger.exception(f"Error generating schedule data Excel: {str(e)}")
+        raise
+
+@app.route('/export_schedule_data', methods=['POST'])
+def export_schedule_data():
+    """Export TW2 data as Schedule Data Excel report"""
+    try:
+        updated_tw2_data = session.get('updated_tw2_data') or session.get('tw2_data')
+        if not updated_tw2_data:
+            return jsonify({'success': False, 'error': 'TW2 data not loaded'}), 400
+
+        tw2_path = session.get('original_tw2_path') or session.get('tw2_file_path', '')
+        project_name = 'VAV Schedule Data'
+
+        if tw2_path:
+            import os
+            filename = os.path.splitext(os.path.basename(tw2_path))[0]
+            if ' - ' in filename:
+                project_name = filename.split(' - ')[0].strip()
+            else:
+                project_name = filename
+
+        excel_file = generate_schedule_data_excel(updated_tw2_data, project_name)
+
+        from datetime import datetime
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        filename = f"Schedule_Data_{timestamp}.xlsx"
+
+        return send_file(
+            excel_file,
+            mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            as_attachment=True,
+            download_name=filename
+        )
+
+    except Exception as e:
+        logger.exception(f"Error in export_schedule_data: {str(e)}")
+        return jsonify({'success': False, 'error': f'Error generating report: {str(e)}'}), 500
+
+
 if __name__ == '__main__':
     app.run(debug=True, port=5004)

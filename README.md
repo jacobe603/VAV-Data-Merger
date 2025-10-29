@@ -9,8 +9,10 @@ A web-based tool for combining Excel spreadsheet data with Titus Teams TW2 datab
 ## Features
 
 - **Drag & Drop Interface**: Easy file uploads for TW2 and Excel files
-- **Automatic Field Mapping**: Smart mapping between Excel columns and TW2 database fields  
+- **Automatic Field Mapping**: Smart mapping between Excel columns and TW2 database fields
 - **Data Preview**: Visual confirmation of data before processing
+- **Performance Comparison**: Compare Excel data against TW2 file with pass/warn/fail indicators
+- **Schedule Data Export**: Generate professional Excel reports matching Titus Teams template format
 - **Backup Creation**: Automatic backups with timestamps before making changes
 - **Built-in Instructions**: Comprehensive workflow guide accessible from the web interface
 - **UTF-16 Error Handling**: Resolves Microsoft Access ODBC driver encoding issues

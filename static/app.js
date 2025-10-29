@@ -1064,6 +1064,66 @@
             showToast('Export feature coming soon', 'info');
         }
 
+        // Create Schedule Report function
+        function createScheduleReport() {
+            console.log('CREATE REPORT: Starting schedule report generation');
+
+            const reportBtn = document.getElementById('create-report-btn');
+            const originalText = reportBtn.innerHTML;
+
+            // Disable button and show loading state
+            reportBtn.disabled = true;
+            reportBtn.innerHTML = '<span class="spinner-border spinner-border-sm me-2" role="status"></span>Creating...';
+
+            fetch('/export_schedule_data', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                }
+            })
+            .then(response => {
+                if (!response.ok) {
+                    return response.json().then(data => {
+                        throw new Error(data.error || `HTTP error! status: ${response.status}`);
+                    });
+                }
+                return response.blob();
+            })
+            .then(blob => {
+                // Create a temporary URL for the blob
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+
+                // Generate filename with timestamp
+                const now = new Date();
+                const timestamp = now.getFullYear() +
+                                ('0' + (now.getMonth() + 1)).slice(-2) +
+                                ('0' + now.getDate()).slice(-2) + '_' +
+                                ('0' + now.getHours()).slice(-2) +
+                                ('0' + now.getMinutes()).slice(-2) +
+                                ('0' + now.getSeconds()).slice(-2);
+
+                a.download = `Schedule_Data_${timestamp}.xlsx`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(url);
+                document.body.removeChild(a);
+
+                showToast('Schedule Data report created successfully!', 'success');
+                console.log('CREATE REPORT: File downloaded successfully');
+            })
+            .catch(error => {
+                console.error('CREATE REPORT: Error:', error);
+                showToast(`Error creating report: ${error.message}`, 'danger');
+            })
+            .finally(() => {
+                // Re-enable button and restore original text
+                reportBtn.disabled = false;
+                reportBtn.innerHTML = originalText;
+            });
+        }
+
         // Refresh and compare function
         function refreshAndCompare() {
             console.log('REFRESH: Starting refresh and compare operation');
