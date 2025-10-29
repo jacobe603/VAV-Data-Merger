@@ -1741,131 +1741,105 @@ def refresh_and_compare():
 
 
 def generate_schedule_data_excel(tw2_data, project_name):
-    """Generate Schedule Data Excel report from TW2 data"""
+    """Generate Schedule Data Excel report from TW2 data using template"""
     try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Alignment, Font
-        from openpyxl.utils import get_column_letter
+        from openpyxl import load_workbook
+        from copy import copy
+        from openpyxl.styles import Font
         from io import BytesIO
 
-        wb = Workbook()
+        # Load template file
+        template_path = os.path.join(os.path.dirname(__file__), 'templates', 'Schedule_Data_Template.xlsx')
+        wb = load_workbook(template_path)
         ws = wb.active
-        ws.title = 'MasterLandscapeReport'
 
-        # Set column widths
-        column_widths = [15, 10, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12, 12]
-        for i, width in enumerate(column_widths, 1):
-            ws.column_dimensions[get_column_letter(i)].width = width
-
-        # Row 1: Title
-        ws['A1'] = 'Single Duct Terminal Unit Schedule'
-        ws['A1'].font = Font(bold=True, size=12)
-        ws.merge_cells('A1:AD1')
-
-        # Row 2: Project name
+        # Update project name in row 2
         ws['A2'] = project_name
-        ws['A2'].font = Font(bold=True, size=11)
 
-        # Row 3: Group headers
-        headers_group = {
-            'A3': 'Tag',
-            'C3': 'AHU',
-            'F3': 'Room',
-            'G3': 'Model',
-            'H3': 'Size',
-            'J3': 'CFM',
-            'L3': 'Static Pressure',
-            'O3': 'NC Levels',
-            'Q3': 'Hot Water Heat Coil',
-            'AD3': 'Unit Information'
-        }
-        for cell, value in headers_group.items():
-            ws[cell] = value
-            ws[cell].font = Font(bold=True)
+        # Get template row formatting (row 5)
+        template_row = 5
 
-        # Row 4: Column headers
-        headers_row4 = {
-            'A4': 'Tag',
-            'C4': 'Tag',
-            'H4': 'Unit',
-            'I4': 'Outlet',
-            'J4': 'Max',
-            'K4': 'Min',
-            'L4': 'Inlet',
-            'M4': 'Down',
-            'N4': 'Min',
-            'O4': 'Rad',
-            'P4': 'Dis',
-            'Q4': 'CFM',
-            'R4': 'MBH',
-            'S4': 'EAT',
-            'V4': 'EWT',
-            'W4': 'LAT',
-            'X4': 'APd',
-            'Y4': 'GPM',
-            'Z4': 'LWT',
-            'AA4': 'WPd',
-            'AB4': 'Rows',
-            'AC4': 'FPI',
-            'AD4': 'Hand'
-        }
-        for cell, value in headers_row4.items():
-            ws[cell] = value
-            ws[cell].font = Font(bold=True)
-            ws[cell].alignment = Alignment(horizontal='center', vertical='center')
+        # Insert data rows starting at row 5
+        for i, record in enumerate(tw2_data):
+            row_num = 5 + i
 
-        # Data rows
-        data_row = 5
-        for record in tw2_data:
+            # If not the first data row, insert a new row
+            if i > 0:
+                ws.insert_rows(row_num)
+
+                # Copy formatting from template row to new row
+                for col_num in range(1, 31):  # Columns A-AD
+                    from openpyxl.utils import get_column_letter
+                    col_letter = get_column_letter(col_num)
+
+                    source_cell = ws.cell(row=template_row, column=col_num)
+                    target_cell = ws.cell(row=row_num, column=col_num)
+
+                    # Skip if source is a merged cell
+                    if source_cell.coordinate in ws.merged_cells:
+                        continue
+
+                    # Copy formatting
+                    if source_cell.font:
+                        target_cell.font = copy(source_cell.font)
+                    if source_cell.border:
+                        target_cell.border = copy(source_cell.border)
+                    if source_cell.alignment:
+                        target_cell.alignment = copy(source_cell.alignment)
+                    if source_cell.fill:
+                        target_cell.fill = copy(source_cell.fill)
+                    if source_cell.number_format:
+                        target_cell.number_format = copy(source_cell.number_format)
+
+            # Populate data columns
             try:
-                ws[f'A{data_row}'] = record.get('Tag', '')
-                ws[f'H{data_row}'] = record.get('UnitSize', '')
-                ws[f'I{data_row}'] = record.get('OutletSize', '')
-                ws[f'J{data_row}'] = record.get('CFMDesign', '')
-                ws[f'K{data_row}'] = record.get('CFMMinPrime', '')
-                ws[f'L{data_row}'] = record.get('SPInlet', '')
-                ws[f'M{data_row}'] = record.get('SPDownstream', '')
-                ws[f'N{data_row}'] = record.get('SPMin', '')
-                ws[f'O{data_row}'] = record.get('RadNCRoom', '')
-                ws[f'P{data_row}'] = record.get('DisNCRoom', '')
-                ws[f'Q{data_row}'] = record.get('HWCFM', '')
+                ws[f'A{row_num}'] = record.get('Tag', '')
+                ws[f'H{row_num}'] = record.get('UnitSize', '')
+                ws[f'I{row_num}'] = record.get('OutletSize', '')
+                ws[f'J{row_num}'] = record.get('CFMDesign', '')
+                ws[f'K{row_num}'] = record.get('CFMMinPrime', '')
+                ws[f'L{row_num}'] = record.get('SPInlet', '')
+                ws[f'M{row_num}'] = record.get('SPDownstream', '')
+                ws[f'N{row_num}'] = record.get('SPMin', '')
+                ws[f'O{row_num}'] = record.get('RadNCRoom', '')
+                ws[f'P{row_num}'] = record.get('DisNCRoom', '')
+                ws[f'Q{row_num}'] = record.get('HWCFM', '')
 
                 if record.get('HWMBHCalc'):
-                    ws[f'R{data_row}'] = round(float(record.get('HWMBHCalc', 0)))
+                    ws[f'R{row_num}'] = round(float(record.get('HWMBHCalc', 0)))
 
-                ws[f'S{data_row}'] = record.get('HWEATCalc', '')
-                ws[f'V{data_row}'] = record.get('HWEWT', '')
+                ws[f'S{row_num}'] = record.get('HWEATCalc', '')
+                ws[f'V{row_num}'] = record.get('HWEWT', '')
 
                 if record.get('HWLATCalc'):
-                    ws[f'W{data_row}'] = round(float(record.get('HWLATCalc', 0)), 1)
+                    ws[f'W{row_num}'] = round(float(record.get('HWLATCalc', 0)), 1)
 
                 if record.get('HWAPDCalc'):
-                    ws[f'X{data_row}'] = round(float(record.get('HWAPDCalc', 0)), 2)
+                    ws[f'X{row_num}'] = round(float(record.get('HWAPDCalc', 0)), 2)
 
-                ws[f'Y{data_row}'] = record.get('HWGPMCalc', '')
+                ws[f'Y{row_num}'] = record.get('HWGPMCalc', '')
 
                 if record.get('HWLWTCalc'):
-                    ws[f'Z{data_row}'] = round(float(record.get('HWLWTCalc', 0)), 1)
+                    ws[f'Z{row_num}'] = round(float(record.get('HWLWTCalc', 0)), 1)
 
                 if record.get('HWPDCalc'):
-                    ws[f'AA{data_row}'] = round(float(record.get('HWPDCalc', 0)), 2)
+                    ws[f'AA{row_num}'] = round(float(record.get('HWPDCalc', 0)), 2)
 
                 hw_rows = record.get('HWRowsCalc') or record.get('HWRows', '')
                 control_hand = record.get('ControlHand', '')
                 if hw_rows:
-                    ws[f'AB{data_row}'] = f"{hw_rows}-{control_hand}"
+                    ws[f'AB{row_num}'] = f"{hw_rows}-{control_hand}"
 
-                ws[f'AC{data_row}'] = record.get('HWFPI', '')
-                ws[f'AD{data_row}'] = record.get('ControlHand', '')
+                ws[f'AC{row_num}'] = record.get('HWFPI', '')
+                ws[f'AD{row_num}'] = record.get('ControlHand', '')
 
-                data_row += 1
             except Exception as e:
                 logger.error(f"Error processing row for tag {record.get('Tag', 'Unknown')}: {str(e)}")
-                data_row += 1
                 continue
 
-        # Add notes section
-        notes_start_row = data_row + 2
+        # Place notes section after data (use row numbers far enough away from merged cells)
+        # Template has merged cells up to about row 14, so start notes at row 16
+        notes_start_row = max(5 + len(tw2_data) + 2, 16)
 
         # Get fluid type info from first record
         fluid_type = tw2_data[0].get('FluidType', '') if tw2_data else ''
@@ -1879,6 +1853,18 @@ def generate_schedule_data_excel(tw2_data, project_name):
             fluid_description = "100% Water"
         else:
             fluid_description = f"{pct_glycol}% {fluid_type}"
+
+        # Unmerge any merged cells in the notes area before populating
+        merged_ranges_to_unmerge = []
+        for merged_range in ws.merged_cells.ranges:
+            if merged_range.min_row >= notes_start_row - 2:
+                merged_ranges_to_unmerge.append(str(merged_range))
+
+        for merged_range_str in merged_ranges_to_unmerge:
+            try:
+                ws.unmerge_cells(merged_range_str)
+            except:
+                pass  # Ignore errors if already unmerged
 
         # Notes content
         notes = [
@@ -1909,6 +1895,7 @@ def generate_schedule_data_excel(tw2_data, project_name):
     except Exception as e:
         logger.exception(f"Error generating schedule data Excel: {str(e)}")
         raise
+
 
 @app.route('/export_schedule_data', methods=['POST'])
 def export_schedule_data():

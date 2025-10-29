@@ -9,9 +9,10 @@ All notable changes to this project are documented in this file.
 
 ### Added
 - **Create Schedule Report feature**: New "Create Report" button that generates Excel spreadsheets matching Titus Teams Schedule Data template format. Features include:
+  - Template-based export using `templates/Schedule_Data_Template.xlsx` to preserve exact formatting, borders, and alignment
   - Automatic project name detection from TW2 file path
   - All VAV unit performance data (CFM, MBH, LAT, WPD, APD, etc.)
-  - Pre-formatted Excel template with grouped headers and proper styling
+  - Proper handling of merged cells and formatting from Titus Teams template
   - Additional 7th note documenting hot water performance fluid type (Water, Ethylene Glycol, or Propylene Glycol with percentage)
   - One-click download of formatted report
 - **setup.bat**: Windows automated setup script that creates virtual environment and installs dependencies with one click.
