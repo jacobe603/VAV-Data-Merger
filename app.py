@@ -1848,6 +1848,11 @@ def generate_schedule_data_excel(tw2_data, project_name):
                 safe_set_cell(f'AC{row_num}', record.get('HWFPI', ''))
                 safe_set_cell(f'AD{row_num}', record.get('ControlHand', ''))
 
+                # Re-merge cells for this data row to match original template structure
+                ws.merge_cells(f'A{row_num}:B{row_num}')
+                ws.merge_cells(f'C{row_num}:E{row_num}')
+                ws.merge_cells(f'R{row_num}:S{row_num}')
+
             except Exception as e:
                 logger.error(f"Error processing row for tag {record.get('Tag', 'Unknown')}: {str(e)}")
                 continue
@@ -1885,8 +1890,18 @@ def generate_schedule_data_excel(tw2_data, project_name):
                 safe_set_cell(f'B{current_row}', label)
                 ws[f'B{current_row}'].font = Font(bold=True)
                 safe_set_cell(f'E{current_row}', note)
+                # Merge notes label cells
+                try:
+                    ws.merge_cells(f'B{current_row}:C{current_row}')
+                except:
+                    pass
             else:
                 safe_set_cell(f'E{current_row}', note)
+            # Merge notes content cells
+            try:
+                ws.merge_cells(f'E{current_row}:R{current_row}')
+            except:
+                pass
             current_row += 1
 
         output = BytesIO()
