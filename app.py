@@ -1759,6 +1759,19 @@ def generate_schedule_data_excel(tw2_data, project_name):
         # Get template row formatting (row 5)
         template_row = 5
 
+        # Helper function to safely set cell value (handles merged cells)
+        def safe_set_cell(cell_ref, value):
+            cell = ws[cell_ref]
+            if cell.coordinate in ws.merged_cells:
+                # Find the top-left cell of the merged range
+                for merged_range in ws.merged_cells.ranges:
+                    if cell.coordinate in merged_range:
+                        top_left = merged_range.start_cell
+                        top_left.value = value
+                        return
+            else:
+                cell.value = value
+
         # Insert data rows starting at row 5
         for i, record in enumerate(tw2_data):
             row_num = 5 + i
@@ -1791,54 +1804,53 @@ def generate_schedule_data_excel(tw2_data, project_name):
                     if source_cell.number_format:
                         target_cell.number_format = copy(source_cell.number_format)
 
-            # Populate data columns
+            # Populate data columns using safe setter
             try:
-                ws[f'A{row_num}'] = record.get('Tag', '')
-                ws[f'H{row_num}'] = record.get('UnitSize', '')
-                ws[f'I{row_num}'] = record.get('OutletSize', '')
-                ws[f'J{row_num}'] = record.get('CFMDesign', '')
-                ws[f'K{row_num}'] = record.get('CFMMinPrime', '')
-                ws[f'L{row_num}'] = record.get('SPInlet', '')
-                ws[f'M{row_num}'] = record.get('SPDownstream', '')
-                ws[f'N{row_num}'] = record.get('SPMin', '')
-                ws[f'O{row_num}'] = record.get('RadNCRoom', '')
-                ws[f'P{row_num}'] = record.get('DisNCRoom', '')
-                ws[f'Q{row_num}'] = record.get('HWCFM', '')
+                safe_set_cell(f'A{row_num}', record.get('Tag', ''))
+                safe_set_cell(f'H{row_num}', record.get('UnitSize', ''))
+                safe_set_cell(f'I{row_num}', record.get('OutletSize', ''))
+                safe_set_cell(f'J{row_num}', record.get('CFMDesign', ''))
+                safe_set_cell(f'K{row_num}', record.get('CFMMinPrime', ''))
+                safe_set_cell(f'L{row_num}', record.get('SPInlet', ''))
+                safe_set_cell(f'M{row_num}', record.get('SPDownstream', ''))
+                safe_set_cell(f'N{row_num}', record.get('SPMin', ''))
+                safe_set_cell(f'O{row_num}', record.get('RadNCRoom', ''))
+                safe_set_cell(f'P{row_num}', record.get('DisNCRoom', ''))
+                safe_set_cell(f'Q{row_num}', record.get('HWCFM', ''))
 
                 if record.get('HWMBHCalc'):
-                    ws[f'R{row_num}'] = round(float(record.get('HWMBHCalc', 0)))
+                    safe_set_cell(f'R{row_num}', round(float(record.get('HWMBHCalc', 0))))
 
-                ws[f'S{row_num}'] = record.get('HWEATCalc', '')
-                ws[f'V{row_num}'] = record.get('HWEWT', '')
+                safe_set_cell(f'S{row_num}', record.get('HWEATCalc', ''))
+                safe_set_cell(f'V{row_num}', record.get('HWEWT', ''))
 
                 if record.get('HWLATCalc'):
-                    ws[f'W{row_num}'] = round(float(record.get('HWLATCalc', 0)), 1)
+                    safe_set_cell(f'W{row_num}', round(float(record.get('HWLATCalc', 0)), 1))
 
                 if record.get('HWAPDCalc'):
-                    ws[f'X{row_num}'] = round(float(record.get('HWAPDCalc', 0)), 2)
+                    safe_set_cell(f'X{row_num}', round(float(record.get('HWAPDCalc', 0)), 2))
 
-                ws[f'Y{row_num}'] = record.get('HWGPMCalc', '')
+                safe_set_cell(f'Y{row_num}', record.get('HWGPMCalc', ''))
 
                 if record.get('HWLWTCalc'):
-                    ws[f'Z{row_num}'] = round(float(record.get('HWLWTCalc', 0)), 1)
+                    safe_set_cell(f'Z{row_num}', round(float(record.get('HWLWTCalc', 0)), 1))
 
                 if record.get('HWPDCalc'):
-                    ws[f'AA{row_num}'] = round(float(record.get('HWPDCalc', 0)), 2)
+                    safe_set_cell(f'AA{row_num}', round(float(record.get('HWPDCalc', 0)), 2))
 
                 hw_rows = record.get('HWRowsCalc') or record.get('HWRows', '')
                 control_hand = record.get('ControlHand', '')
                 if hw_rows:
-                    ws[f'AB{row_num}'] = f"{hw_rows}-{control_hand}"
+                    safe_set_cell(f'AB{row_num}', f"{hw_rows}-{control_hand}")
 
-                ws[f'AC{row_num}'] = record.get('HWFPI', '')
-                ws[f'AD{row_num}'] = record.get('ControlHand', '')
+                safe_set_cell(f'AC{row_num}', record.get('HWFPI', ''))
+                safe_set_cell(f'AD{row_num}', record.get('ControlHand', ''))
 
             except Exception as e:
                 logger.error(f"Error processing row for tag {record.get('Tag', 'Unknown')}: {str(e)}")
                 continue
 
-        # Place notes section after data (use row numbers far enough away from merged cells)
-        # Template has merged cells up to about row 14, so start notes at row 16
+        # Place notes section after data
         notes_start_row = max(5 + len(tw2_data) + 2, 16)
 
         # Get fluid type info from first record
@@ -1864,7 +1876,7 @@ def generate_schedule_data_excel(tw2_data, project_name):
             try:
                 ws.unmerge_cells(merged_range_str)
             except:
-                pass  # Ignore errors if already unmerged
+                pass
 
         # Notes content
         notes = [
@@ -1880,11 +1892,17 @@ def generate_schedule_data_excel(tw2_data, project_name):
         current_row = notes_start_row
         for label, note in notes:
             if label:
-                ws[f'B{current_row}'] = label
-                ws[f'B{current_row}'].font = Font(bold=True)
-                ws[f'E{current_row}'] = note
+                safe_set_cell(f'B{current_row}', label)
+                b_cell = ws[f'B{current_row}']
+                if b_cell.coordinate in ws.merged_cells:
+                    for merged_range in ws.merged_cells.ranges:
+                        if b_cell.coordinate in merged_range:
+                            b_cell = merged_range.start_cell
+                            break
+                b_cell.font = Font(bold=True)
+                safe_set_cell(f'E{current_row}', note)
             else:
-                ws[f'E{current_row}'] = note
+                safe_set_cell(f'E{current_row}', note)
             current_row += 1
 
         output = BytesIO()
